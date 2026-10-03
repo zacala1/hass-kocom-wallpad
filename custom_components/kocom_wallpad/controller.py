@@ -507,7 +507,11 @@ class KocomController:
                     "device_class": device_class,
                     "unit_of_measurement": native_unit
                 }
-                if state > 0:
+                if (
+                    state > 0
+                    or self.gateway.registry.get(key) is not None
+                    or self.gateway._force_register_uid == key.unique_id
+                ):
                     dev = DeviceState(key=key, platform=Platform.SENSOR, attribute=attribute, state=state)
                     states.append(dev)
             return states
