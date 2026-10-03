@@ -1,5 +1,13 @@
 {
     "title": "Kocom Wallpad",
+    "options": {
+        "step": {
+            "init": {
+                "description": "Auto preserves the existing device temperature step. Select 1 to restrict thermostat controls to 1°C steps. Air conditioners are unaffected. This option does not change packet encoding or add half-degree protocol support.",
+                "data": {"thermostat_step": "Thermostat step (auto: existing device value, 1: 1°C)"}
+            }
+        }
+    },
     "config": {
         "step": {
             "user": {

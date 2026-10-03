@@ -122,8 +122,10 @@ class KocomController:
         while True:
             start = buf.find(PACKET_PREFIX)
             if start < 0:
-                # 프리픽스 이전의 쓰레기 데이터 제거
-                buf.clear()
+                if buf and buf[-1] == PACKET_PREFIX[0]:
+                    del buf[:-1]
+                else:
+                    buf.clear()
                 break
             if start > 0:
                 del buf[:start]
@@ -244,8 +246,8 @@ class KocomController:
             state = {
                 "hvac_mode": havc_mode,
                 "preset_mode": preset_mode,
-                "target_temp": self._device_storage.get(f"{key.unique_id}_thermo_target", target_temp),
-                "current_temp": self._device_storage.get(f"{key.unique_id}_thermo_current", current_temp),
+                "target_temp": target_temp or self._device_storage.get(f"{key.unique_id}_thermo_target", target_temp),
+                "current_temp": current_temp or self._device_storage.get(f"{key.unique_id}_thermo_current", current_temp),
             }
             if target_temp % 1 == 0.5 and self._device_storage.get(f"{key.unique_id}_thermo_step") != 0.5:
                 LOGGER.debug("0.5°C step detected, heating supports 0.5 increments.")
@@ -552,7 +554,7 @@ class KocomController:
         # 밸브는 동작이 느릴 수 있으니 기본 타임아웃 상향
         base_timeout = max(CMD_CONFIRM_TIMEOUT, 1.5)
         if action == "turn_on":
-            return True, base_timeout
+            return self._match_key_and(key, lambda d: bool(d.state) is True), base_timeout
         if action == "turn_off":
             return self._match_key_and(key, lambda d: bool(d.state) is False), base_timeout
         return self._match_key_and(key, lambda _d: False), base_timeout
@@ -706,4 +708,3 @@ class KocomController:
             data[0] = 0x10
             data[5] = int(tt)
         return data
-    

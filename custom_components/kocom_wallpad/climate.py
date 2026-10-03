@@ -19,7 +19,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from .gateway import KocomGateway
 from .models import DeviceState
 from .entity_base import KocomBaseEntity
-from .const import DOMAIN, LOGGER
+from .const import DOMAIN, LOGGER, DeviceType
 
 
 async def async_setup_entry(
@@ -82,20 +82,20 @@ class KocomClimate(KocomBaseEntity, ClimateEntity):
         return self._device.attribute["hvac_modes"]
     
     @property
-    def fan_mode(self) -> str:
-        return self._device.state["fan_mode"]
+    def fan_mode(self) -> str | None:
+        return self._device.state.get("fan_mode")
     
     @property
-    def fan_modes(self) -> List[str]:
-        return self._device.attribute["fan_modes"]
+    def fan_modes(self) -> List[str] | None:
+        return self._device.attribute.get("fan_modes")
 
     @property
-    def preset_mode(self) -> str:
-        return self._device.state["preset_mode"]
+    def preset_mode(self) -> str | None:
+        return self._device.state.get("preset_mode")
     
     @property
-    def preset_modes(self) -> List[str]:
-        return self._device.attribute["preset_modes"]
+    def preset_modes(self) -> List[str] | None:
+        return self._device.attribute.get("preset_modes")
 
     @property
     def current_temperature(self) -> float:
@@ -107,6 +107,11 @@ class KocomClimate(KocomBaseEntity, ClimateEntity):
     
     @property
     def target_temperature_step(self) -> float:
+        if (
+            self._device.key.device_type == DeviceType.THERMOSTAT
+            and self.gateway.entry.options.get("thermostat_step", "auto") == "1"
+        ):
+            return 1.0
         return self._device.attribute["temp_step"]
     
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:

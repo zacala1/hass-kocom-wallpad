@@ -5,11 +5,11 @@
         "@lunDreame"
     ],
     "config_flow": true,
-    "documentation": "https://github.com/lunDreame/kocom-wallpad",
+    "documentation": "https://github.com/zacala1/hass-kocom-wallpad",
     "iot_class": "local_push",
-    "issue_tracker": "https://github.com/lunDreame/kocom-wallpad/issues",
+    "issue_tracker": "https://github.com/zacala1/hass-kocom-wallpad/issues",
     "requirements": [
         "pyserial-asyncio"
     ],
-    "version": "2.0.5"
+    "version": "2.1.0b1"
 }

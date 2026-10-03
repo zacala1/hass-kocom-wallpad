@@ -32,7 +32,7 @@ class _CmdItem:
     key: DeviceKey
     action: str
     kwargs: dict
-    future: asyncio.Future = field(default_factory=asyncio.get_running_loop().create_future)
+    future: asyncio.Future = field(default_factory=lambda: asyncio.get_running_loop().create_future())
 
 
 class _PendingWaiter:
@@ -122,6 +122,7 @@ class KocomGateway:
         self.controller = KocomController(self)
         self.registry = EntityRegistry()
         self._tx_queue: asyncio.Queue[_CmdItem] = asyncio.Queue()
+        self._current_item: _CmdItem | None = None
         self._task_reader: asyncio.Task | None = None
         self._task_sender: asyncio.Task | None = None
         self._pendings: list[_PendingWaiter] = []
@@ -148,6 +149,22 @@ class KocomGateway:
             self._task_sender.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._task_sender
+        if self._current_item is not None:
+            if not self._current_item.future.done():
+                self._current_item.future.set_result(False)
+            self._tx_queue.task_done()
+            self._current_item = None
+        while not self._tx_queue.empty():
+            item = self._tx_queue.get_nowait()
+            if not item.future.done():
+                item.future.set_result(False)
+            self._tx_queue.task_done()
+        self._task_reader = None
+        self._task_sender = None
+        for waiter in self._pendings:
+            if not waiter.future.done():
+                waiter.future.cancel()
+        self._pendings.clear()
         await self.conn.close()
 
     def is_idle(self) -> bool:
@@ -158,7 +175,7 @@ class KocomGateway:
             LOGGER.debug("Starting read loop")
             while True:
                 if not self.conn._is_connected():
-                    await asyncio.sleep(5)
+                    await self.conn.reconnect()
                     continue
                 chunk = await self.conn.recv(512, RECV_POLL_SEC)
                 if chunk:
@@ -292,6 +309,7 @@ class KocomGateway:
                 item = await self._tx_queue.get()
                 if item is None:
                     continue
+                self._current_item = item
 
                 # generate packet & expect predicate
                 try:
@@ -302,6 +320,7 @@ class KocomGateway:
                     LOGGER.exception("generate_command failed: %s", e)
                     if not item.future.done():
                         item.future.set_result(False)
+                    self._current_item = None
                     self._tx_queue.task_done()
                     continue
 
@@ -322,10 +341,15 @@ class KocomGateway:
                         LOGGER.warning("Connection not ready. '%s' abort.", item.action)
                         break
 
-                    # 전송
+                    waiter = _PendingWaiter(item.key, expect_predicate, asyncio.get_running_loop())
+                    self._pendings.append(waiter)
+                    # Register before sending so an immediate reply is not lost.
                     try:
                         await self.conn.send(packet)
                     except Exception as e:
+                        if waiter in self._pendings:
+                            self._pendings.remove(waiter)
+                        waiter.future.cancel()
                         LOGGER.warning("Send failed on attempt %d: %s", attempt, e)
                         if attempt < SEND_RETRY_MAX:
                             await asyncio.sleep(SEND_RETRY_GAP)
@@ -337,7 +361,7 @@ class KocomGateway:
 
                     # 확인 대기
                     try:
-                        _ = await self._wait_for_confirmation(item.key, expect_predicate, timeout)
+                        _ = await asyncio.wait_for(waiter.future, timeout=timeout)
                         LOGGER.debug("Command '%s' confirmed (attempt %d).", item.action, attempt)
                         success = True
                         break
@@ -350,10 +374,16 @@ class KocomGateway:
                             await asyncio.sleep(SEND_RETRY_GAP)
                         else:
                             LOGGER.error("Command '%s' failed after %d attempts.", item.action, SEND_RETRY_MAX)
+                    finally:
+                        if waiter in self._pendings:
+                            self._pendings.remove(waiter)
+                        if not waiter.future.done():
+                            waiter.future.cancel()
 
                 if not item.future.done():
                     item.future.set_result(success)
 
+                self._current_item = None
                 self._tx_queue.task_done()
         except asyncio.CancelledError:
             LOGGER.debug("Sender loop cancelled")

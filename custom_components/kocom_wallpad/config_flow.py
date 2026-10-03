@@ -5,16 +5,24 @@ from __future__ import annotations
 from typing import Any
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.const import CONF_HOST, CONF_PORT
+from homeassistant.core import callback
 
 from .const import DOMAIN, DEFAULT_TCP_PORT
+from .options_flow import KocomOptionsFlow
 
 
 class KocomConfigFlow(ConfigFlow, domain=DOMAIN):
     """Config flow for Kocom Wallpad."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        """Return options using the HA-owned config entry."""
+        return KocomOptionsFlow()
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
