@@ -243,7 +243,7 @@ class KocomGateway:
 
     @callback
     def async_signal_device_updated(self, unique_id: str) -> str:
-        return f"{DOMAIN}_updated_{unique_id}"
+        return f"{DOMAIN}_updated_{self.entry.entry_id}_{unique_id}"
 
     @callback
     def async_signal_connection_state(self) -> str:
