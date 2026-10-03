@@ -1,5 +1,8 @@
 {
   "name": "Kocom Wallpad",
   "render_readme": true,
+  "zip_release": true,
+  "hide_default_branch": true,
+  "filename": "kocom_wallpad.zip",
   "homeassistant": "2025.2.2"
 }

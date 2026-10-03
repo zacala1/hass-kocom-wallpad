@@ -23,6 +23,7 @@ GitHub에 아직 푸시하거나 릴리스하지 않았으므로, HACS에서 원
 - 원본 기본 브랜치의 마지막 런타임 변경은 2025-08-21의 2.0.5 계열입니다. 2026-02-07 변경은 문서와 LICENSE 삭제입니다.
 
 [변경 이력](CHANGELOG.md)에서 이 브랜치의 수정사항을 확인할 수 있습니다.
+[배포 준비와 제한](docs/release.md)에 최신 HA 검증 대상, ZIP 생성, 공개 배포 차단 조건을 기록합니다.
 
 ## 구현된 기능
 
@@ -66,6 +67,10 @@ TCP와 시리얼 실행에는 manifest에 선언된 `pyserial-asyncio`를 사용
 ## 설치
 
 ### HACS에서 원격 저장소 설치
+
+이 브랜치의 HACS 설정은 ZIP 릴리스 전용입니다. 아직 첫 릴리스를 발행하지 않았으므로
+설정만 원격에 반영한 상태에서는 설치할 릴리스 자산이 없습니다. 아래 절차는 자산 발행 후 사용합니다.
+지금 로컬 미리보기를 시험하려면 다음 수동 설치 절차를 사용하세요.
 
 1. HACS의 **Custom repositories**에 `https://github.com/zacala1/hass-kocom-wallpad`를 추가합니다.
 2. 유형은 **Integration**을 선택하고 Kocom Wallpad를 설치합니다.

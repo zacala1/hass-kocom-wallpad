@@ -9,7 +9,8 @@
     "iot_class": "local_push",
     "issue_tracker": "https://github.com/zacala1/hass-kocom-wallpad/issues",
     "requirements": [
-        "pyserial-asyncio"
+        "pyserial==3.5",
+        "pyserial-asyncio==0.6"
     ],
     "version": "2.1.0b1"
 }

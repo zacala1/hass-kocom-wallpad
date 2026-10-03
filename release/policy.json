@@ -1,0 +1,16 @@
+{
+  "publication_enabled": false,
+  "version": "2.1.0b1",
+  "runtime_tree": "",
+  "license_reviewed": false,
+  "license_evidence": "",
+  "clean_install_evidence": "",
+  "hardware_evidence": "",
+  "quality_contract_evidence": "",
+  "latest_stable_ha": "2026.9.4",
+  "ha_matrix": [
+    {"ha": "2025.2.2", "python": "3.13"},
+    {"ha": "2025.2.5", "python": "3.13"},
+    {"ha": "2026.9.4", "python": "3.14"}
+  ]
+}

@@ -1,4 +1,4 @@
-name: Validate
+name: Validate and package
 
 on:
   push:
@@ -6,13 +6,116 @@ on:
   schedule:
     - cron: "0 0 * * 0"
   workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  validate-hacs:
-    runs-on: "ubuntu-latest"
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
-      - uses: "actions/checkout@v3"
-      - name: HACS validation
-        uses: "hacs/action@main"
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          category: "integration"
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version: '0.12.5'
+      - name: Existing regression tests
+        run: uv run --no-project --with-requirements requirements-dev.txt python -B -m unittest discover -s tests -v
+      - name: Fatal Python diagnostics
+        run: uv run --no-project --with ruff==0.13.3 ruff check --isolated --select E9,F63,F7,F82 custom_components tests
+      - name: Packaging success and failure scenarios
+        shell: pwsh
+        run: ./tests/test-release.ps1
+      - name: Reproducible archive
+        shell: pwsh
+        run: |
+          ./scripts/build-release.ps1 -OutputDirectory dist/a
+          ./scripts/build-release.ps1 -OutputDirectory dist/b
+          if ((Get-FileHash dist/a/kocom_wallpad.zip).Hash -ne (Get-FileHash dist/b/kocom_wallpad.zip).Hash) { throw 'Archive digests differ' }
+      - id: matrix
+        shell: pwsh
+        run: |
+          $policy = Get-Content -Raw release/policy.json | ConvertFrom-Json
+          $matrix = @{include = $policy.ha_matrix} | ConvertTo-Json -Compress -Depth 5
+          "matrix=$matrix" >> $env:GITHUB_OUTPUT
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: kocom-package-candidate
+          path: dist/a/*
+          if-no-files-found: error
+          retention-days: 7
+
+  real-ha-import:
+    needs: package
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.package.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version: '0.12.5'
+      - name: Build and extract in clean install path
+        shell: pwsh
+        run: |
+          ./scripts/build-release.ps1
+          $destination = Join-Path $env:RUNNER_TEMP 'kocom-ha-smoke/custom_components/kocom_wallpad'
+          New-Item -ItemType Directory -Force -Path $destination | Out-Null
+          [IO.Compression.ZipFile]::ExtractToDirectory((Join-Path $pwd 'dist/kocom_wallpad.zip'), $destination)
+      - name: Import packaged integration with real Home Assistant (not test shims)
+        env:
+          HA_VERSION: ${{ matrix.ha }}
+        run: |
+          cd "$RUNNER_TEMP/kocom-ha-smoke"
+          uv run --no-project --with "homeassistant==$HA_VERSION" --with pyserial==3.5 --with pyserial-asyncio==0.6 python -W error -c '
+          import importlib
+          import pathlib
+          for module in ("__init__", "config_flow", "options_flow", "light", "switch", "climate", "fan", "sensor", "binary_sensor"):
+              loaded = importlib.import_module("custom_components.kocom_wallpad." + module)
+              assert pathlib.Path(loaded.__file__).resolve().is_relative_to(pathlib.Path.cwd())
+          print("Packaged real-HA imports passed; lifecycle and hardware acceptance are separate gates")
+          '
+
+  validate-hassfest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: home-assistant/actions/hassfest@06749dd8c0b54f350bc69c8752456cee498808a3
+
+  validate-hacs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: HACS validation
+        uses: hacs/action@1ebf01c408f29afcb6406bd431bc98fd8cbb15aa
+        with:
+          category: integration
