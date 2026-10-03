@@ -1,0 +1,59 @@
+[project]
+name = "hass-kocom-wallpad"
+version = "2.1.0b2"
+description = "Development and compatibility checks for the Kocom HA integration"
+requires-python = ">=3.13"
+dependencies = ["serialx==1.10.0"]
+
+[dependency-groups]
+dev = [
+    "ruff==0.13.3", "basedpyright==1.31.4",
+    "voluptuous==0.15.2; python_version < '3.14'",
+    "voluptuous==0.16.0; python_version >= '3.14'",
+]
+ha = [
+    "pytest-homeassistant-custom-component==0.13.215; python_version < '3.14'",
+    "pytest-homeassistant-custom-component==0.13.367; python_full_version >= '3.14.2'",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = ["COM812", "ISC001", "D203", "D213"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "ARG", "PLR2004", "SLF001", "D", "INP001"]
+
+[tool.basedpyright]
+typeCheckingMode = "all"
+pythonVersion = "3.13"
+pythonPlatform = "All"
+include = ["custom_components", "tests/real_ha"]
+exclude = ["dist", ".venv"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/real_ha"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = ["--strict-config", "--strict-markers", "-p", "no:cacheprovider"]
+filterwarnings = [
+    "error",
+    # Upstream aiohttp application inheritance, present in both HA release lines.
+    "ignore:Inheritance class HomeAssistantApplication from web.Application is discouraged:DeprecationWarning:homeassistant.components.http",
+    # Upstream backoff still uses this Python 3.14 deprecated introspection helper.
+    "ignore:'asyncio.iscoroutinefunction' is deprecated:DeprecationWarning:backoff",
+    # The 2025.2 release line predates these pyOpenSSL deprecations.
+    "ignore:CSR support in pyOpenSSL is deprecated:DeprecationWarning:josepy.util",
+    "ignore:CSR support in pyOpenSSL is deprecated:DeprecationWarning:acme.crypto_util",
+    "ignore:X509Extension support in pyOpenSSL is deprecated:DeprecationWarning:acme.crypto_util",
+]
+
+[tool.coverage.run]
+source = ["custom_components.kocom_wallpad"]
+branch = true

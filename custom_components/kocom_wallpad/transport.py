@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Tuple
 import asyncio
-import serial_asyncio
+import serialx
 import time
 
 from .const import LOGGER
@@ -33,7 +33,7 @@ class AsyncConnection:
         """Attempt a single connection, without any self-healing on failure."""
         if self.port is None:
             self._reader, self._writer = await asyncio.wait_for(
-                serial_asyncio.open_serial_connection(
+                serialx.open_serial_connection(
                     url=self.host, baudrate=self.serial_baud
                 ),
                 timeout=self.connect_timeout,

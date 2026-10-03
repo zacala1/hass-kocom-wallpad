@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional, List
+from typing import Any, List
 
 from homeassistant.components.fan import FanEntity, FanEntityFeature
 
@@ -99,13 +99,26 @@ class KocomFan(KocomBaseEntity, FanEntity):
 
     async def async_turn_on(
         self,
-        speed: Optional[str] = None,
-        percentage: Optional[int] = None,
-        preset_mode: Optional[str] = None,
+        percentage: int | None = None,
+        preset_mode: str | None = None,
         **kwargs: Any,
     ) -> None:
-        await self.gateway.async_send_action(self._device.key, "turn_on")
+        if percentage == 0:
+            await self.async_set_percentage(0)
+            return
+        if percentage is not None and preset_mode is not None:
+            speed = percentage_to_ordered_list_item(
+                self._device.attribute["speed_list"], percentage
+            )
+            await self.gateway.async_send_action(
+                self._device.key, "set_percentage", speed=speed, preset_mode=preset_mode
+            )
+        elif preset_mode is not None:
+            await self.async_set_preset_mode(preset_mode)
+        elif percentage is not None:
+            await self.async_set_percentage(percentage)
+        else:
+            await self.gateway.async_send_action(self._device.key, "turn_on")
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self.gateway.async_send_action(self._device.key, "turn_off")
-        

@@ -127,5 +127,7 @@ class KocomClimate(KocomBaseEntity, ClimateEntity):
         await self.gateway.async_send_action(self._device.key, "set_preset", **args)
 
     async def async_set_temperature(self, **kwargs) -> None:
-        args = {"target_temp": float(kwargs[ATTR_TEMPERATURE])}
+        args: dict[str, float | HVACMode] = {"target_temp": float(kwargs[ATTR_TEMPERATURE])}
+        if (hvac_mode := kwargs.get("hvac_mode")) is not None:
+            args["hvac_mode"] = HVACMode(hvac_mode)
         await self.gateway.async_send_action(self._device.key, "set_temperature", **args)

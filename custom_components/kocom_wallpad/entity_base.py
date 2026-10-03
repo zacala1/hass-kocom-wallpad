@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.restore_state import RestoreEntity, RestoredExtraData
 from homeassistant.core import callback
 from homeassistant.const import Platform
@@ -50,7 +50,6 @@ class KocomBaseEntity(RestoreEntity):
             manufacturer="KOCOM Co., Ltd",
             model="Smart Wallpad",
             name=f"{self.format_identifiers}",
-            via_device=(DOMAIN, str(self.gateway.host)),
         )
         
     @property

@@ -546,7 +546,8 @@ class KocomController:
             return self._match_key_and(key, lambda d: isinstance(d.state, dict) and d.state.get("preset_mode") == pm), CMD_CONFIRM_TIMEOUT
         if action == "set_percentage":
             speed = kwargs["speed"]
-            return self._match_key_and(key, lambda d: isinstance(d.state, dict) and d.state.get("speed") == speed), CMD_CONFIRM_TIMEOUT
+            preset_mode = kwargs.get("preset_mode")
+            return self._match_key_and(key, lambda d: isinstance(d.state, dict) and d.state.get("speed") == speed and (preset_mode is None or d.state.get("preset_mode") == preset_mode)), CMD_CONFIRM_TIMEOUT
 
         return self._match_key_and(key, lambda _d: False), CMD_CONFIRM_TIMEOUT
 
@@ -568,7 +569,8 @@ class KocomController:
             return self._match_key_and(key, lambda d: isinstance(d.state, dict) and d.state.get("preset_mode") == pm), CMD_CONFIRM_TIMEOUT
         if action == "set_temperature":
             tt = kwargs["target_temp"]
-            return self._match_key_and(key, lambda d: isinstance(d.state, dict) and d.state.get("target_temp") == tt), max(CMD_CONFIRM_TIMEOUT, 1.5)
+            hm = kwargs.get("hvac_mode")
+            return self._match_key_and(key, lambda d: isinstance(d.state, dict) and d.state.get("target_temp") == tt and (hm is None or d.state.get("hvac_mode") == hm)), max(CMD_CONFIRM_TIMEOUT, 1.5)
         if action == "turn_on":
             return self._match_key_and(key, lambda d: isinstance(d.state, dict) and d.state.get("state") is True), CMD_CONFIRM_TIMEOUT
         if action == "turn_off":
@@ -587,7 +589,8 @@ class KocomController:
             return self._match_key_and(key, lambda d: isinstance(d.state, dict) and d.state.get("preset_mode") == pm), CMD_CONFIRM_TIMEOUT
         if action == "set_temperature":
             tt = kwargs["target_temp"]
-            return self._match_key_and(key, lambda d: isinstance(d.state, dict) and d.state.get("target_temp") == tt), max(CMD_CONFIRM_TIMEOUT, 1.5)
+            hm = kwargs.get("hvac_mode")
+            return self._match_key_and(key, lambda d: isinstance(d.state, dict) and d.state.get("target_temp") == tt and (hm is None or d.state.get("hvac_mode") == hm)), max(CMD_CONFIRM_TIMEOUT, 1.5)
         if action == "turn_on":
             return self._match_key_and(key, lambda d: isinstance(d.state, dict) and d.state.get("state") is True), CMD_CONFIRM_TIMEOUT
         if action == "turn_off":
@@ -672,6 +675,8 @@ class KocomController:
             speed = kwargs["speed"]
             data[0] = 0x00 if speed == 0 else 0x11
             data[2] = speed
+            if (preset_mode := kwargs.get("preset_mode")) is not None:
+                data[1] = REV_VENT_PRESET_MAP[preset_mode]
         else:
             data[0] = 0x11 if action == "turn_on" else 0x00
         return data
@@ -687,7 +692,7 @@ class KocomController:
             data[1] = 0x01 if pm == PRESET_AWAY else 0x00
         elif action == "set_temperature":
             tt = kwargs["target_temp"]
-            data[0] = 0x11
+            data[0] = 0x00 if kwargs.get("hvac_mode") == HVACMode.OFF else 0x11
             data[2] = int(tt)
         return data
     
@@ -705,6 +710,9 @@ class KocomController:
             data[2] = REV_AC_FAN_MAP[fm]
         elif action == "set_temperature":
             tt = kwargs["target_temp"]
-            data[0] = 0x10
+            hm = kwargs.get("hvac_mode")
+            data[0] = 0x00 if hm == HVACMode.OFF else 0x10
+            if hm is not None and hm != HVACMode.OFF:
+                data[1] = REV_AC_HVAC_MAP[hm]
             data[5] = int(tt)
         return data

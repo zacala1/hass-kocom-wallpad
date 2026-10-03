@@ -62,7 +62,7 @@ Official references:
 - [Device registry migration](https://developers.home-assistant.io/blog/2026/08/24/device-registry-follow-up-changes/)
   The latter documents custom-integration deprecation warnings before removal in 2027.8; a warning alone is not proof that the original integration cannot run.
 
-## Validation and limits
+## Validation and limits for the original 2.1.0b1 pass
 
 - The original baseline failed eight targeted regression cases (including stale temperatures, split headers, unresolved commands, startup failure, and lost immediate confirmations).
 - The adapted preview passes 18 tests, including a real local TCP round trip and actual voluptuous option-schema validation; HA interfaces are narrow test shims.
@@ -76,3 +76,11 @@ Run offline tests from the repository root:
 ```powershell
 uv run --no-project --with-requirements requirements-dev.txt python -B -m unittest discover -s tests -v
 ```
+
+## 2.1.0b2 compatibility follow-up
+
+The serialx recommendation above is now adopted as `serialx==1.10.0`, without copying another fork's HA floor increase. The nonexistent `via_device` parent reference is removed; no replacement hub or registry identity migration is introduced. The actual HA 2026.9.4 requirements manager warns about the old pyserial-asyncio dependency and schedules removal for 2027.2; this is distinct from the device-registry 2027.8 deprecation timeline.
+
+Actual HA 2025.2.2 / 2025.2.5 / 2026.9.4 each pass 26 independent no-shim tests. They include config-entry loading, discovery, unload, retry, options saving, serialx/TCP streams, and actual HA service/queue/TCP/reply/state round trips for thermostat OFF, AC dry and combined fan controls. The original 18 shim regressions remain in a separate process. Hardware, Linux field acceptance, remote HACS/Hassfest/CI, loaded-entry option reload, upgrade recovery and full strict-quality gates remain release prerequisites.
+
+The user explicitly chose compatibility work over large gateway/controller splitting. Only narrow combined-command encoding and confirmation conditions changed in the controller; model support and existing single-control packets remain intact. Version, dependency and verification details are in [release preparation](docs/release.md).

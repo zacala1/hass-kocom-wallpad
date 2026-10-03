@@ -1,6 +1,6 @@
 {
   "publication_enabled": false,
-  "version": "2.1.0b1",
+  "version": "2.1.0b2",
   "runtime_tree": "",
   "license_reviewed": false,
   "license_evidence": "",
@@ -9,8 +9,8 @@
   "quality_contract_evidence": "",
   "latest_stable_ha": "2026.9.4",
   "ha_matrix": [
-    {"ha": "2025.2.2", "python": "3.13"},
-    {"ha": "2025.2.5", "python": "3.13"},
-    {"ha": "2026.9.4", "python": "3.14"}
+    {"ha": "2025.2.2", "python": "3.13", "ha_test": "0.13.212"},
+    {"ha": "2025.2.5", "python": "3.13", "ha_test": "0.13.215"},
+    {"ha": "2026.9.4", "python": "3.14", "ha_test": "0.13.367"}
   ]
 }

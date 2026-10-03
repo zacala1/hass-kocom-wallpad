@@ -1,6 +1,6 @@
 # 배포 준비와 제한
 
-기준일: 2026-10-03 (Asia/Seoul). 현재 통합 버전은 미출시 베타 `2.1.0b1`입니다.
+기준일: 2026-10-03 (Asia/Seoul). 현재 통합 버전은 미출시 베타 `2.1.0b2`입니다.
 **패키징 준비와 공개 배포 승인은 다릅니다. 현재 공개 배포는 차단되어 있습니다.**
 
 ## HA/Python 기준
@@ -12,19 +12,34 @@
 
 | 검증 대상 | Python 계열 | 의미 |
 | --- | --- | --- |
-| `2025.2.2` | `3.13` | 기존 HACS 최소 버전, 실제 인증은 아직 아님 |
-| `2025.2.5` | `3.13` | 기존 최소 계열의 마지막 패치 |
-| `2026.9.4` | `3.14` 최신 패치 | 조사 시점 최신 안정판 |
+| `2025.2.2` | `3.13.7` | 최소 버전, 실제 HA 테스트 26개 통과 |
+| `2025.2.5` | `3.13.7` | 최소 계열 마지막 패치, 26개 통과 |
+| `2026.9.4` | `3.14.6` | 최신 안정판, 26개 통과 |
 
 매트릭스는 `release/policy.json`에서 관리하고 CI가 읽습니다.
 [2025.2 계열의 Python 요구사항](https://github.com/home-assistant/core/blob/2025.2.5/pyproject.toml)은 `3.13.0+`입니다.
-최신 HA의 import 검증을 추가했다고 실제 설치·기기 제어 호환성이 입증되는 것은 아닙니다.
+Windows에서 HA 자체 클래스로 설정·플랫폼 로드, TCP 패킷 기기 등록/상태,
+해제/연결 EOF, 연결 실패 재시도, 옵션 저장, 팬 서비스 인자, climate 모드/온도,
+serialx socket URL과 기존 TCP 송수신을 검증했습니다. USB 하드웨어와 Linux 현장 실행은 별도입니다.
 지원 하한은 임의로 올리지 않았습니다. 하한을 올릴 경우 기존 설치 배제와 버전 정책을 별도 검토해야 합니다.
 
-현재 `pyserial==3.5`, `pyserial-asyncio==0.6`을 정확히 고정했습니다.
-HA의 [serialx 전환 안내](https://developers.home-assistant.io/blog/2026/04/27/pyserial-to-serialx/)와
-[기기 레지스트리 변경](https://developers.home-assistant.io/blog/2026/08/24/device-registry-follow-up-changes/)은 후속 호환성 검토 대상입니다.
-이번 배포 준비에서 통신 라이브러리나 엔티티 식별자를 교체하지 않았습니다.
+HA의 [serialx 전환 안내](https://developers.home-assistant.io/blog/2026/04/27/pyserial-to-serialx/)에 따라
+기존 두 시리얼 의존성을 `serialx==1.10.0`으로 교체했습니다. HA 2026.9.4의
+[실제 requirements 소스](https://github.com/home-assistant/core/blob/2026.9.4/homeassistant/requirements.py)는
+pyserial-asyncio를 경고 대상으로 표시하고 제거 예정 버전을 `2027.2`로 둡니다. 현재 차단이라고 단정하지 않습니다.
+존재하지 않는 부모를 참조하던 `via_device`만 제거하고 엔티티/기기 식별자·이름·연결 정보는 유지했습니다.
+팬의 기존 `speed` 인자를 제거해 HA의 `(percentage, preset_mode)` 호출에 맞추고 요청된 속도/프리셋을 반영합니다.
+둘 다 지정하면 한 패킷에 속도와 프리셋을 담으며, 0%는 프리셋을 활성화하지 않고 끕니다.
+climate 온도 요청에 HVAC 모드가 있으면 한 패킷에 두 값을 담아 OFF/제습/자동/송풍이 온도 명령으로 덮이지 않게 합니다.
+확인 응답도 두 값을 모두 만족해야 합니다. 실제 HA 서비스 → 명령 큐 → TCP 패킷 → 응답 → HA 상태 왕복을 난방 OFF, 에어컨 제습, 팬 복합 요청으로 검증했습니다.
+명시적 복합 요청에 필요한 패킷 필드만 확장했으며 기존 단독 요청 인코딩, 모델별 온도 단위와 옵션은 변경하지 않았습니다.
+
+개발 도구는 `pyproject.toml`/`uv.lock`에 고정했습니다. Python 3.13에서는 HA 2025.2.5,
+Python 3.14.2+에서는 HA 2026.9.4의 정확한 테스트 도구 버전을 선택합니다.
+`PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`을 지정하고 `uv run --frozen --group ha python -m pytest -p pytest_asyncio.plugin`으로 실행합니다.
+HA의 Linux runner 플러그인 대신 동일 패키지의 실제 HA 테스트 인스턴스 생성기를 사용하므로 가짜 fcntl 모듈이 필요하지 않습니다.
+경고는 실패 처리하되 HA/aiohttp, backoff 및 최소 계열의 pyOpenSSL에서 관측된 특정 상류 경고만 필터링합니다.
+기존 18개 shim 테스트는 `uv run --frozen python -B -m unittest discover -s tests -v`로 별도 실행합니다.
 
 ## ZIP 계약
 
@@ -56,9 +71,9 @@ HACS는 [공식 ZIP 릴리스 설정](https://www.hacs.xyz/docs/publish/start/)�
 
 1. 현재 LICENSE가 없고 원본 README는 권리 유보 표기입니다. 재배포 권한과 적용할 라이선스를 확인하고 근거를 기록해야 합니다. 다른 포크의 라이선스를 복사하지 않습니다.
 2. 원격 HACS/Hassfest 및 전체 CI 결과가 없습니다. 로컬 YAML 검사와 회귀 테스트만으로 원격 통과를 주장하지 않습니다.
-3. 실제 HA의 깨끗한 설치, 통합 설정 생성, 플랫폼 로드, 옵션 reload, unload, 연결 실패 재시도, 업그레이드/복구 검증이 필요합니다. CI의 실제 HA import 테스트는 그 일부만 확인합니다.
-4. 모델과 연결 방식이 명시된 실물 동작 기록이 필요합니다. 현재 18개 테스트는 HA shim과 로컬 TCP를 사용합니다.
-5. 통합 개발 품질 계약의 locked 환경, strict 타입/전체 lint·format, branch coverage 95% 및 모듈 규모 요구사항은 아직 충족하지 않았습니다. 현재 CI의 fatal lint는 이를 대신하지 않습니다.
+3. 실제 HA의 기본 설정/플랫폼/해제/연결 실패/옵션 저장은 로컬 검증했습니다. CI는 ZIP을 새 경로에 추출해 같은 테스트를 실행하도록 갱신했지만 원격 성공 기록은 없습니다. 옵션 reload, 업그레이드/복구와 Linux 현장 검증은 남아 있습니다.
+4. 모델과 연결 방식이 명시된 실물 동작 기록이 필요합니다. 26개 실제 HA 테스트와 18개 shim 회귀 테스트는 USB 시리얼·실물 월패드 인증을 대신하지 않습니다.
+5. locked 환경은 추가했지만 strict 타입/전체 lint·format, branch coverage 95% 및 모듈 규모 요구사항은 아직 충족하지 않았습니다. 새 실제 HA 테스트의 통합 전체 branch 측정은 67%입니다. 현재 CI의 fatal lint는 전체 품질 계약을 대신하지 않습니다.
 
 기존 `hass.data` 소유 구조, 레지스트리 API와 넓은 예외 처리 등의 전체 현대화는 이번 변경 범위 밖입니다.
 필요한 후속 검증/개선을 수행하고 품질 계약의 충족 근거를 남기기 전에는 배포 승인을 기록하지 않습니다.
@@ -66,7 +81,7 @@ HACS는 [공식 ZIP 릴리스 설정](https://www.hacs.xyz/docs/publish/start/)�
 ## 승인 기록과 발행 제한
 
 베타/RC는 `X.Y.ZbN`, `X.Y.ZrcN`; 태그는 `v<manifest의 정확한 버전>`입니다.
-발행된 버전/태그/자산은 재사용하거나 이동하지 않습니다. 이번 `2.1.0b1`은 아직 발행하지 않아 그대로 유지했습니다.
+발행된 버전/태그/자산은 재사용하거나 이동하지 않습니다. 이번 호환성 변경은 로컬 미리보기 `2.1.0b2`로 구분합니다. 아직 태그·릴리스하지 않았습니다.
 manifest와 policy 버전, README/CHANGELOG, CI 및 태그를 함께 갱신합니다.
 
 공개 배포를 별도로 승인받은 뒤에만 아래 절차를 수행합니다.
