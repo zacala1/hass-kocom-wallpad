@@ -1,64 +1,147 @@
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge)](https://my.home-assistant.io/redirect/hacs_repository/?owner=zacala1&repository=hass-kocom-wallpad&category=Integration)
 
-# Kocom Wallpad Integration for Home Assistant
-Home Assistant를 위한 Kocom Wallpad 통합구성요소
+# Kocom Wallpad for Home Assistant
 
-## 기여
-문제가 있나요? [Issues](https://github.com/lunDreame/kocom-wallpad/issues) 탭에 작성해 주세요.
+코콤 월패드의 RS-485 통신을 Home Assistant에 연결하는 커스텀 통합입니다.
+EW11의 TCP 연결 또는 Home Assistant에서 접근 가능한 시리얼 장치를 사용하며,
+수신한 상태 패킷을 조명·콘센트·난방·에어컨·환기·센서 엔티티로 제공합니다.
 
-- 더 좋은 아이디어가 있나요? [Pull requests](https://github.com/lunDreame/kocom-wallpad/pulls)로 공유해 주세요!
-- 이 통합을 사용하면서 발생하는 문제에 대해서는 책임지지 않습니다.
+[lunDreame/kocom-wallpad](https://github.com/lunDreame/kocom-wallpad)에서 시작한 유지보수 포크입니다.
+다른 포크의 코드와 문서를 비교해 유효한 개선을 선별합니다.
+변경 출처와 검증 범위는 [포크 적용 기록](FORK_ADOPTION.md),
+전체 조사 결과는 [포크·브랜치 조사](docs/fork-survey.md)에 기록합니다.
 
-도움이 되셨나요? [카카오페이](https://qr.kakaopay.com/FWDWOBBmR) [토스](https://toss.me/lundreamer)
+## 현재 버전과 검증 범위
+
+현재 작업 브랜치는 `feat/fork-stability`, 통합 버전은 로컬 미리보기 `2.1.0b1`입니다.
+GitHub에 아직 푸시하거나 릴리스하지 않았으므로, HACS에서 원격 저장소를 설치해도
+이 로컬 브랜치의 개선사항이 자동으로 포함되지는 않습니다.
+
+- 기존 HACS 메타데이터의 최소 HA 버전 `2025.2.2`를 유지합니다. 이 값은 새 호환성 인증이 아닙니다.
+- Python 3.12.14에서 오프라인 회귀 테스트와 실제 로컬 TCP 송수신을 포함한 18개 테스트를 통과했습니다.
+- HA 인터페이스는 테스트용 shim을 사용했습니다. 실제 HA 실행, 실물 월패드, HACS/Hassfest 및 원격 CI는 아직 검증하지 않았습니다.
+- 원본 기본 브랜치의 마지막 런타임 변경은 2025-08-21의 2.0.5 계열입니다. 2026-02-07 변경은 문서와 LICENSE 삭제입니다.
+
+[변경 이력](CHANGELOG.md)에서 이 브랜치의 수정사항을 확인할 수 있습니다.
+
+## 구현된 기능
+
+아래 표는 현재 코드의 구현 범위입니다. 모델·배선·수신 패킷에 따라 기기가 제공하는 기능이 달라집니다.
+모든 코콤 모델에서 실물 검증을 마쳤다는 의미는 아닙니다.
+
+| 기능 | HA 엔티티 | 구현과 제한 |
+| --- | --- | --- |
+| 조명 | `light` | 켜기/끄기. 현재 밝기 조절은 구현되지 않았습니다. |
+| 일괄소등 | `light` | 상태 처리 코드가 있으나 제어 동작은 모델별 확인이 필요합니다. |
+| 콘센트 | `switch` | 켜기/끄기 |
+| 난방 | `climate` | 난방/꺼짐, 목표·현재 온도, 외출 프리셋 |
+| 에어컨 | `climate` | 냉방·송풍·제습·자동·꺼짐, 온도, 팬 모드 |
+| 환기 | `fan` | 켜기/끄기, 3단 속도, 수신 패킷에 따라 제공되는 프리셋 |
+| 공기질 | `sensor` | PM10, PM2.5, CO₂, VOC, 온도, 습도 |
+| 보일러·환기 상태 | `sensor`, `binary_sensor` | 온수·난방수 온도, CO₂, 오류 상태 등 |
+| 가스밸브 | `switch` | 상태 표시 및 제어 프레임. 안전한 잠금 해제 기능으로 취급하지 마세요. |
+| 현관 움직임 | `binary_sensor` | 움직임 상태 |
+| 엘리베이터 | `switch`, `sensor` | 호출, 방향, 수신되는 경우 층수 |
+| 인터폰 | — | 현재 브랜치에서는 지원하지 않습니다. |
+| 에너지미터 | — | 현재 브랜치에는 전기·수도·온수 계량기 지원을 반영하지 않았습니다. |
+
+원본 README의 “조명 (디밍) 지원” 표기는 현재 `light.py`의 ON/OFF 구현과 맞지 않아 정정했습니다.
+디밍과 인터폰 기능을 시도한 별도 개발 브랜치는 [조사 문서](docs/fork-survey.md)에 링크했습니다.
+
+가스밸브는 켜기/끄기 요청이 같은 명령 프레임을 생성합니다.
+엘리베이터도 켜기/끄기 요청이 같은 호출 프레임을 생성하므로, 끄기를 호출 취소로 사용하지 마세요.
+일괄소등은 수신·제어·모델별 검증을 구분해서 확인해야 합니다.
+
+## 준비와 연결
+
+| 연결 | 호스트 입력 | 포트 | 현재 시리얼 속도 |
+| --- | --- | --- | --- |
+| EW11 TCP | Home Assistant에서 접근 가능한 IP 또는 호스트명 | 기본 `8899` | EW11 설정과 월패드 배선에 따라 확인 |
+| 직접 시리얼 | `/dev/ttyUSB0` 또는 `/dev/serial/by-id/...` | 입력값 무시 | `9600` baud |
+
+호스트가 `/`로 시작하면 시리얼 경로로 처리합니다.
+HA 실행 환경에서 장치 파일에 접근할 수 있어야 합니다.
+TCP와 시리얼 실행에는 manifest에 선언된 `pyserial-asyncio`를 사용합니다.
 
 ## 설치
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=lunDreame&repository=kocom-wallpad&category=Integration)
 
-이 통합을 설치하려면 이 GitHub Repo를 HACS Custom Repositories에 추가하거나 위의 배지를 클릭하세요. 설치 후 HomeAssistant를 재부팅하세요.
+### HACS에서 원격 저장소 설치
 
-1. **기기 및 서비스** 메뉴에서 **통합구성요소 추가하기**를 클릭합니다.
-2. **브랜드 이름 검색** 탭에 `코콤 월패드`을 입력하고 검색 결과에서 클릭합니다.
-3. 아래 설명에 따라 설정을 진행합니다:
-   - 호스트: EW11 장치의 IP 주소
-   - 포트: EW11 장치의 포트 (기본값: 8899)
-4. 설정이 완료된 후, 컴포넌트가 로드되면 생성된 기기를 사용하실 수 있습니다.
+1. HACS의 **Custom repositories**에 `https://github.com/zacala1/hass-kocom-wallpad`를 추가합니다.
+2. 유형은 **Integration**을 선택하고 Kocom Wallpad를 설치합니다.
+3. Home Assistant를 재시작합니다.
+4. **설정 → 기기 및 서비스 → 통합구성요소 추가**에서 **코콤 월패드**를 검색합니다.
+5. 호스트와 포트를 입력합니다.
 
-### 준비
-- 기본적인 환경에선 EW11 장치 하나 필요 추가적인 인터폰 제어 시에는 기존 장치 포함 하나 더 필요
-- 인터폰 결선의 경우 [해당](https://blog.oriang.net/45) 링크 참조
+HACS 절차는 [공식 Custom Repositories 안내](https://www.hacs.xyz/docs/faq/custom_repositories/)를 참고하세요.
+로컬 브랜치의 변경은 원격에 반영되기 전까지 이 설치 경로에 포함되지 않습니다.
 
-## 기능
+### 로컬 미리보기 수동 설치
 
-| 기기       | 지원  | 속성                           |
-|-----------|------|-------------------------------|
-| 조명 (디밍) | O    |                               |
-| 일괄소등    | O    |                               |
-| 콘센트      | O    |                               |
-| 난방       | O    | 외출 모드                        |
-| 에어컨     | O    |                                |
-| 환기       | O    |                                |
-| 가스       | O    | 잠금만 지원                       |
-| 실내 공기질  | O    |                                |
-| 모션(현관)  | O    |                                |
-| 인터폰      | X    |                                 |
-| 엘리베이터   | O    | 방향, 층수                       |
+현재 체크아웃의 `custom_components/kocom_wallpad` 폴더 내용을
+HA 설정 디렉터리의 `custom_components/kocom_wallpad`에 배치한 뒤 HA를 재시작합니다.
+변경 전 HA 설정과 기존 통합 파일을 백업해 두면 원본 파일로 되돌릴 수 있습니다.
+수동 설치 파일은 HACS에서 재다운로드하면 덮어써질 수 있습니다.
 
-- **초기 장치 추가 시에는 최초 한번은 장치를 ON/OFF 하셔야 합니다.**
-- 엘리베이터의 경우 현관 스위치가 있는 경우 현관 스위치에서 호출하셔야 정상적으로 등록됩니다.
-- 장치 추가 등은 이슈 또는 메일로 문의 부탁드립니다.
+원본과 다른 포크는 모두 같은 통합 도메인 `kocom_wallpad`와 설치 경로를 사용합니다.
+한 HA 환경에 여러 포크를 동시에 설치하지 마세요.
+파일 제공 저장소를 바꾸는 것과 HA의 통합 설정 항목을 삭제하는 것은 다른 작업입니다.
+기존 설정 항목은 유지하면서 사용할 코드 제공 저장소를 하나로 정하세요.
 
-## 디버깅
-- 문제 파악을 위해 아래 코드를 `configuration.yaml` 파일에 추가 후 HomeAssistant를 재시작해 주세요.
-- 디버깅 외에는 활성화하지 마세요.
+설정 화면에서는 입력을 저장합니다. 실제 연결은 통합 로드 단계에서 시도하며,
+처음 연결하지 못하면 HA 재시도 대상으로 처리합니다. 연결이 끊기면 재연결을 시도합니다.
 
-문의 [이메일](mailto:lundreame34@gmail.com)로 연락 부탁드립니다.
+## 난방 옵션과 모델별 능력
 
-```yaml
-logger:
-  default: info
-  logs:
-    custom_components.kocom_wallpad: debug
+통합의 **구성/옵션**에서 `thermostat_step`을 선택할 수 있습니다.
+
+| 값 | 동작 |
+| --- | --- |
+| `auto` (기본) | 기존 기기 상태의 온도 간격을 유지합니다. 현재 정수 바이트 프로토콜의 일반 기본값은 1°C입니다. |
+| `1` | 난방 UI 조작 간격을 명시적으로 1°C로 제한합니다. 에어컨에는 적용하지 않습니다. |
+
+옵션을 저장하면 해당 통합 항목을 다시 로드합니다.
+이 옵션은 UI 간격이며 패킷 인코딩을 바꾸거나 0.5°C 지원을 추가하지 않습니다.
+현재 디코더는 정수 바이트를 읽고 인코더는 정수로 변환합니다.
+코드에 있던 0.5°C 자동 감지 조건만으로 실제 0.5°C 단위 지원을 입증할 수 없습니다.
+
+확인된 모델의 고정 능력은 모델 프로필로 관리하고, 설치별 선택만 옵션으로 제공하는 것이 유지보수 기준입니다.
+현재 런타임에는 실제 월패드 모델별 능력 프로필이 없습니다.
+일괄소등·환기 프리셋·온도 인코딩 등을 특정 포크의 설치 사례만으로 전체 기본값에 덮어쓰지 않습니다.
+
+## 기기가 보이지 않거나 제어가 안 되는 경우
+
+조명과 콘센트는 최초 등록 때 켜짐 상태 패킷이 필요할 수 있습니다.
+월패드에서 해당 장치를 한 번 켜고 상태가 들어오는지 확인하세요.
+엘리베이터 층수는 월패드가 층 정보를 보내는 설치에서만 나타날 수 있습니다.
+
+연결·재시작·환기·일괄소등·온도 문제별 확인 방법과 로그 수집은
+[문제 해결 안내](docs/troubleshooting.md)에 정리했습니다.
+
+## 개발 검증
+
+저장소 루트에서 다음 명령을 실행합니다.
+
+```sh
+uv run --no-project --with-requirements requirements-dev.txt python -B -m unittest discover -s tests -v
 ```
 
-## 라이선스
+회귀 테스트는 패킷 분할, 난방 최신 상태, 이벤트 루프, 빠른 확인 응답,
+초기화 실패 정리, 종료 시 명령 대기 정리, 옵션 스키마와 로컬 TCP 송수신을 확인합니다.
+HA shim을 사용한 테스트와 실물 검증은 구분합니다.
+기존 GitHub Actions에는 Hassfest/HACS 검증 워크플로가 있지만, 현재 브랜치의 원격 통과 결과는 없습니다.
+
+## 기여와 출처
+
+개선 제안은 [이 저장소](https://github.com/zacala1/hass-kocom-wallpad)와
+[Pull requests](https://github.com/zacala1/hass-kocom-wallpad/pulls)를 이용하세요.
+Issues는 저장소에서 활성화된 경우 사용할 수 있습니다.
+HA 버전, 월패드 모델, 어댑터·연결 방식, 기대/실제 동작과 필요한 로그를 함께 기록하면 비교에 도움이 됩니다.
+
+원작자는 lunDreame이며, 기존 코드의 권리 표기는 유지합니다.
+
 Copyright (c) 2026 lunDreame. All rights reserved.
+
+현재 체크아웃에는 LICENSE 파일이 없습니다.
+다른 포크의 Apache/MIT 표기를 이 저장소의 라이선스인 것처럼 복사하지 않습니다.
+문서 개선의 참고 출처와 적용하지 않은 내용은 [포크 조사 문서](docs/fork-survey.md)에 기록했습니다.

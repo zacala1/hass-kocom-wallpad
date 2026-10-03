@@ -7,7 +7,9 @@ The latest original runtime release in this tree is 2.0.5; the 2026-02-07 commit
 
 ## Comparison scope
 
-GitHub returned 32 forks. Nine active or changed default branches were fetched and compared locally.
+The initial GitHub listing returned 32 forks. The first pass below compared nine active or changed default branches locally.
+The follow-up surveyed all 31 other known forks and all 43 of their public branches, including documentation-only commits.
+See [the complete fork and documentation survey](docs/fork-survey.md) for scope, pinned sources and API-listing limitations.
 Dates below are commit dates in Asia/Seoul, not repository creation or star-update dates.
 Ahead/behind counts include merge and documentation commits; they are not a quality score.
 
