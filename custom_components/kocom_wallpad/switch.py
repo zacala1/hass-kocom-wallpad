@@ -8,7 +8,6 @@ from homeassistant.components.switch import SwitchEntity, SwitchDeviceClass
 
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -16,7 +15,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from .gateway import KocomGateway
 from .models import DeviceState
 from .entity_base import KocomBaseEntity
-from .const import DOMAIN, LOGGER, DeviceType
+from .const import DOMAIN, LOGGER
 
 
 async def async_setup_entry(
@@ -64,11 +63,6 @@ class KocomSwitch(KocomBaseEntity, SwitchEntity):
         return self._device.state
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        if self._device.key.device_type == DeviceType.GASVALVE:
-            # The valve frame is the same for both directions; sending it for
-            # "on" would act on the valve and then fail to confirm.
-            message = "The gas valve can only be switched off, not on"
-            raise HomeAssistantError(message)
         await self.async_send_command("turn_on")
 
     async def async_turn_off(self, **kwargs: Any) -> None:

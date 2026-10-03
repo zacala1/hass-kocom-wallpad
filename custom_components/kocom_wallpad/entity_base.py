@@ -11,6 +11,7 @@ from homeassistant.components.fan import FanEntityDescription
 from homeassistant.components.light import LightEntityDescription
 from homeassistant.components.sensor import SensorEntityDescription
 from homeassistant.components.switch import SwitchEntityDescription
+from homeassistant.components.valve import ValveEntityDescription
 from homeassistant.const import Platform
 from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
@@ -31,7 +32,8 @@ ENTITY_DESCRIPTION_MAP = {
     Platform.CLIMATE: ClimateEntityDescription,
     Platform.FAN: FanEntityDescription,
     Platform.SENSOR: SensorEntityDescription,
-    Platform.BINARY_SENSOR: BinarySensorEntityDescription
+    Platform.BINARY_SENSOR: BinarySensorEntityDescription,
+    Platform.VALVE: ValveEntityDescription,
 }
 
 

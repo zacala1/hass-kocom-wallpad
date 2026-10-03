@@ -29,7 +29,7 @@ async def test_only_known_event_driven_devices_skip_the_fresh_report_rule(
     gas = DeviceKey(DeviceType.GASVALVE, 0, 0, SubType.NONE)
     thermostat = DeviceKey(DeviceType.THERMOSTAT, 1, 0, SubType.NONE)
     motion = DeviceKey(DeviceType.MOTION, 0, 0, SubType.NONE)
-    gateway.registry.upsert(DeviceState(gas, Platform.SWITCH, {}, True))
+    gateway.registry.upsert(DeviceState(gas, Platform.VALVE, {}, True))
     gateway.registry.upsert(DeviceState(thermostat, Platform.CLIMATE, {}, {}))
     # When the link is down, nothing is available.
     assert not gateway.is_device_available(gas)
@@ -54,7 +54,7 @@ async def test_restored_gas_valve_is_available_at_startup_but_thermostat_is_not(
     entry.add_to_hass(hass)
     registry = er.async_get(hass)
     gas = registry.async_get_or_create(
-        "switch", DOMAIN, "8-0_0-0:127.0.0.1", config_entry=entry, suggested_object_id="gas"
+        "valve", DOMAIN, "8-0_0-0:127.0.0.1", config_entry=entry, suggested_object_id="gas"
     )
     heating = registry.async_get_or_create(
         "climate", DOMAIN, "5-1_0-0:127.0.0.1", config_entry=entry, suggested_object_id="heat"
@@ -89,7 +89,7 @@ async def test_restored_gas_valve_is_available_at_startup_but_thermostat_is_not(
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
         # Then the gas valve shows its saved state; the polled device waits for a report.
-        assert hass.states.get(gas.entity_id).state == "on"
+        assert hass.states.get(gas.entity_id).state == "open"
         assert hass.states.get(heating.entity_id).state == "unavailable"
     finally:
         assert await hass.config_entries.async_unload(entry.entry_id)
@@ -134,7 +134,7 @@ async def test_gas_valve_comes_back_after_reconnect_without_a_new_report(
     @callback
     def record(event: Event) -> None:
         new_state = event.data["new_state"]
-        if event.data["entity_id"].startswith("switch.") and new_state is not None:
+        if event.data["entity_id"].startswith("valve.") and new_state is not None:
             seen.append(new_state.state)
 
     unsubscribe = hass.bus.async_listen("state_changed", record)
@@ -142,14 +142,14 @@ async def test_gas_valve_comes_back_after_reconnect_without_a_new_report(
         writer = await asyncio.wait_for(accepted.get(), 2)
         writer.write(GAS_ON)
         await writer.drain()
-        await wait_until(lambda: seen[-1:] == ["on"])
+        await wait_until(lambda: seen[-1:] == ["open"])
         # When the link drops and the gateway reconnects,
         writer.close()
         await writer.wait_closed()
         await asyncio.wait_for(accepted.get(), 2)
         # then the entity goes unavailable and comes back with its last state,
         # although the wallpad sent no new report.
-        await wait_until(lambda: seen[-3:] == ["on", "unavailable", "on"])
+        await wait_until(lambda: seen[-3:] == ["open", "unavailable", "open"])
     finally:
         unsubscribe()
         assert await hass.config_entries.async_unload(entry.entry_id)

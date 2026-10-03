@@ -73,6 +73,7 @@ def test_snapshot_counts_frames_and_records_unhandled_kinds() -> None:
     snapshot = controller.diagnostics_snapshot()
     assert snapshot["stats"] == {
         "frames": 5,
+        "echoed": 0,
         "bad_checksum": 1,
         "handler_errors": 0,
         "unhandled": 3,

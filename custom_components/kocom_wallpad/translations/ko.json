@@ -57,11 +57,13 @@
             "outlet": {
                 "name": "콘센트 {id}"
             },
-            "gasvalve": {
-                "name": "가스밸브 {id}"
-            },
             "elevator": {
                 "name": "엘리베이터 {id}"
+            }
+        },
+        "valve": {
+            "gasvalve": {
+                "name": "가스밸브 {id}"
             }
         },
         "climate": {
@@ -78,6 +80,9 @@
             }
         },
         "sensor": {
+            "last_received": {
+                "name": "마지막 수신"
+            },
             "elevator-direction": {
                 "name": "엘리베이터 방향 {id}"
             },
@@ -113,6 +118,9 @@
             }
         },
         "binary_sensor": {
+            "connection": {
+                "name": "연결"
+            },
             "motion": {
                 "name": "움직임 감지기(현관) {id}"
             },

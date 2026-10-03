@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from homeassistant.config_entries import ConfigEntry
@@ -140,6 +141,7 @@ class KocomGateway:
         self._task_sender: asyncio.Task[None] | None = None
         self._pendings: list[_PendingWaiter] = []
         self._last_rx_monotonic: float | None = None
+        self.last_receive_time: datetime | None = None
         self._last_tx_monotonic: float = 0.0
         self._restore_mode: bool = False
         self._force_register_uid: str | None = None
@@ -183,6 +185,11 @@ class KocomGateway:
 
     def is_idle(self) -> bool:
         return self.conn.idle_since() >= IDLE_GAP_SEC
+
+    @property
+    def connected(self) -> bool:
+        """Whether the link to the wallpad adapter is currently up."""
+        return self.conn._is_connected()
 
     def diagnostics_snapshot(self) -> dict[str, Any]:
         """Connection, known devices and protocol counters for diagnostics."""
@@ -240,6 +247,7 @@ class KocomGateway:
                     chunk = await self.conn.recv(512, RECV_POLL_SEC)
                     if chunk:
                         self._last_rx_monotonic = asyncio.get_running_loop().time()
+                        self.last_receive_time = datetime.now(UTC)
                         self.controller.feed(chunk)
                 except Exception:
                     # Never let one failure end the loop: treat the link as lost so
@@ -485,6 +493,8 @@ class KocomGateway:
             # Register before sending so an immediate reply is not lost.
             try:
                 try:
+                    # Before the write: an echo can arrive as soon as the bytes leave.
+                    self.controller.note_transmitted(packet)
                     await self.conn.send(packet)
                 except Exception as e:  # transport errors, incl. non-OSError serial ones
                     LOGGER.warning("Send failed on attempt %d: %s", attempt, e)

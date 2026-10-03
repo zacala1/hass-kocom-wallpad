@@ -291,6 +291,8 @@ async def test_reconfigured_live_entry_reloads_with_the_same_entities(
         await wait_until(lambda: len(hass.states.async_all("climate")) == 1)
         entity_id = hass.states.async_all("climate")[0].entity_id
         assert registry.async_get(entity_id).unique_id == "5-1_0-0:127.0.0.1"
+        hub = "binary_sensor.kocom_gateway_connection"
+        assert registry.async_get(hub).unique_id == "hub-connection:127.0.0.1"
         # When the host is reconfigured to another name of the same wallpad.
         result = await entry.start_reconfigure_flow(hass)
         result = await hass.config_entries.flow.async_configure(
@@ -310,6 +312,7 @@ async def test_reconfigured_live_entry_reloads_with_the_same_entities(
         await new_writer.drain()
         await wait_until(lambda: hass.states.get(entity_id).state == "heat")
         assert registry.async_get(entity_id).unique_id == "5-1_0-0:localhost"
+        assert registry.async_get(hub).unique_id == "hub-connection:localhost"
         assert len(hass.states.async_all("climate")) == 1
     finally:
         assert await hass.config_entries.async_unload(entry.entry_id)

@@ -83,6 +83,15 @@ async def wallpad(
         await asyncio.wait_for(done.wait(), 2)
 
 
+def device_sensors(hass: HomeAssistant) -> list[State]:
+    """Wallpad device sensors; the gateway's own diagnostic sensor is not one."""
+    return [
+        state
+        for state in hass.states.async_all("sensor")
+        if not state.entity_id.endswith("last_received")
+    ]
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("command", [0x00, 0x3A])
 async def test_existing_airquality_sensors_publish_zero(
@@ -93,7 +102,7 @@ async def test_existing_airquality_sensors_publish_zero(
     # Given three sensors discovered from positive PM10, PM25 and VOC values.
     await wallpad.send(report(command, b"\x08\x05\x00\x00\x00\x03\x00\x00"))
     await hass.async_block_till_done()
-    sensors = hass.states.async_all("sensor")
+    sensors = device_sensors(hass)
     assert len(sensors) == 3
     identities = {
         state.entity_id: er.async_get(hass).async_get(state.entity_id).unique_id
@@ -104,7 +113,7 @@ async def test_existing_airquality_sensors_publish_zero(
     await wallpad.send(report(command, bytes(8), room=2))
     await hass.async_block_till_done()
     # Then existing sensors update to zero and unsupported subtypes/rooms stay absent.
-    states = hass.states.async_all("sensor")
+    states = device_sensors(hass)
     assert len(states) == 3
     assert {state.state for state in states} == {"0"}
     assert {
@@ -126,7 +135,7 @@ async def test_first_all_zero_airquality_packet_discovers_no_sensors(
     await wallpad.send(report(command, bytes(8)))
     await hass.async_block_till_done()
     # Then no unsupported zero-only sensor is created.
-    assert hass.states.async_all("sensor") == []
+    assert device_sensors(hass) == []
     assert wallpad.gateway.get_devices_from_platform(Platform.SENSOR) == []
 
 
@@ -164,4 +173,4 @@ async def test_restore_zero_packet_recreates_only_previously_registered_subtype(
     await wallpad.send(report(command, bytes(8)))
     await hass.async_block_till_done()
     assert hass.states.get(entry.entity_id).state == "0"
-    assert len(hass.states.async_all("sensor")) == 1
+    assert len(device_sensors(hass)) == 1

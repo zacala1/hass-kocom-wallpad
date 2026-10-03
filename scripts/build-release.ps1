@@ -38,7 +38,7 @@ foreach ($indexEntry in (Invoke-RepositoryGit @('ls-files', '--stage', '--', $pr
 }
 if (@($files | Select-Object -Unique).Count -ne $files.Count) { throw 'Duplicate allowlist entry' }
 foreach ($file in $files) {
-    if ($file -notmatch '^(?:[a-z_]+\.py|manifest\.json|translations/[a-z_]+\.json)$') { throw "Unsafe archive entry: $file" }
+    if ($file -notmatch '^(?:[a-z_]+\.py|manifest\.json|translations/[a-z_]+\.json|brand/[a-z0-9_@]+\.png)$') { throw "Unsafe archive entry: $file" }
     $source = Join-Path $Root ($prefix + $file)
     $cursor = Get-Item -LiteralPath $source
     while ($cursor.FullName -ne $Root) {

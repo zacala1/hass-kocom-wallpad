@@ -9,6 +9,7 @@
   "entity_base.py",
   "fan.py",
   "gateway.py",
+  "hub.py",
   "light.py",
   "manifest.json",
   "models.py",
@@ -17,5 +18,8 @@
   "switch.py",
   "translations/en.json",
   "translations/ko.json",
-  "transport.py"
+  "transport.py",
+  "valve.py",
+  "brand/icon.png",
+  "brand/icon@2x.png"
 ]

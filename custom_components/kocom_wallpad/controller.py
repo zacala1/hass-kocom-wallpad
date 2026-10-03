@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections import deque
 from typing import List, Callable, Any, Tuple
 from dataclasses import dataclass, field, replace
@@ -25,6 +26,7 @@ from .const import (
     CMD_CONFIRM_TIMEOUT,
     DIAGNOSTIC_MAX_UNHANDLED,
     DIAGNOSTIC_RECENT_FRAMES,
+    ECHO_WINDOW_SEC,
     DeviceType,
     SubType,
 )
@@ -124,6 +126,7 @@ class KocomController:
         self._device_storage: dict[str, Any] = {}
         self._stats: dict[str, int] = {
             "frames": 0,
+            "echoed": 0,
             "bad_checksum": 0,
             "handler_errors": 0,
             "unhandled": 0,
@@ -131,6 +134,7 @@ class KocomController:
         }
         self._recent_frames: deque[str] = deque(maxlen=DIAGNOSTIC_RECENT_FRAMES)
         self._unhandled: dict[str, dict[str, Any]] = {}
+        self._sent: deque[tuple[bytes, float]] = deque(maxlen=8)
 
     def merge_device_storage(self, saved: dict[str, Any]) -> None:
         """Merge learned values restored from one entity into the live storage.
@@ -170,12 +174,37 @@ class KocomController:
             LOGGER.debug("Packet received: raw=%s", pkt.hex())
             self._stats["frames"] += 1
             self._recent_frames.append(pkt.hex())
+            if self._is_own_echo(pkt):
+                # Some adapters hear their own transmission. It carries the state we
+                # asked for, so treating it as a report would confirm any command.
+                self._stats["echoed"] += 1
+                LOGGER.debug("Ignoring the echo of our own frame: raw=%s", pkt.hex())
+                continue
             try:
                 self._dispatch_packet(pkt)
             except Exception:
                 # A malformed or unexpected frame must not stop the receive loop.
                 self._stats["handler_errors"] += 1
                 LOGGER.exception("Failed to handle packet: raw=%s", pkt.hex())
+
+    def note_transmitted(self, packet: bytes) -> None:
+        """Remember a frame we are about to send so its echo can be recognised."""
+        self._sent.append((bytes(packet), time.monotonic()))
+
+    def _is_own_echo(self, packet: bytes) -> bool:
+        """Whether this frame is, byte for byte, one we sent a moment ago.
+
+        A device reply differs from the command (the addresses are swapped), so only
+        an echo can match. Each transmission explains at most one received frame.
+        """
+        now = time.monotonic()
+        while self._sent and now - self._sent[0][1] > ECHO_WINDOW_SEC:
+            self._sent.popleft()
+        for index, (sent, _at) in enumerate(self._sent):
+            if sent == packet:
+                del self._sent[index]
+                return True
+        return False
 
     def diagnostics_snapshot(self) -> dict[str, Any]:
         """Counters, recent frames and unhandled frame kinds for diagnostics."""
@@ -570,7 +599,7 @@ class KocomController:
             )
             state = frame.command == 0x01
             dev = DeviceState(
-                key=key, platform=Platform.SWITCH, attribute={}, state=state
+                key=key, platform=Platform.VALVE, attribute={}, state=state
             )
             return dev
 

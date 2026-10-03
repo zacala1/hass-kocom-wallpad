@@ -57,11 +57,13 @@
             "outlet": {
                 "name": "Outlet {id}"
             },
-            "gasvalve": {
-                "name": "Gas Valve {id}"
-            },
             "elevator": {
                 "name": "Elevator {id}"
+            }
+        },
+        "valve": {
+            "gasvalve": {
+                "name": "Gas Valve {id}"
             }
         },
         "climate": {
@@ -78,6 +80,9 @@
             }
         },
         "sensor": {
+            "last_received": {
+                "name": "Last received"
+            },
             "elevator-direction": {
                 "name": "Elevator Direction {id}"
             },
@@ -113,6 +118,9 @@
             }
         },
         "binary_sensor": {
+            "connection": {
+                "name": "Connection"
+            },
             "motion": {
                 "name": "Motion Sensor(door) {id}"
             },
