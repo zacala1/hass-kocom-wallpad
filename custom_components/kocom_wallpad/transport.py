@@ -92,6 +92,10 @@ class AsyncConnection:
     def _is_connected(self) -> bool:
         return self._connected
 
+    def mark_disconnected(self) -> None:
+        """Treat the link as lost so the next read triggers a reconnect."""
+        self._set_connected(connected=False)
+
     def _touch(self) -> None:
         self._last_activity_mono = time.monotonic()
 
@@ -110,7 +114,7 @@ class AsyncConnection:
         except asyncio.CancelledError:
             self._set_connected(connected=False)
             raise
-        except (OSError, RuntimeError, ValueError) as e:
+        except Exception as e:  # serialx.SerialException is not an OSError
             LOGGER.warning("Send failed: %r", e)
             self._set_connected(connected=False)
             raise
@@ -122,7 +126,7 @@ class AsyncConnection:
             chunk = await asyncio.wait_for(self._reader.read(nbytes), timeout=timeout)
         except asyncio.TimeoutError:
             return b""
-        except (OSError, RuntimeError, ValueError) as e:
+        except Exception as e:  # serialx.SerialException is not an OSError
             LOGGER.warning("Recv failed: %r", e)
             self._set_connected(connected=False)
             await self.reconnect()
@@ -150,7 +154,7 @@ class AsyncConnection:
                 self._last_reconn_delay = min(delay * 2, delay_max)
                 try:
                     await self._connect_once()
-                except (OSError, RuntimeError, ValueError) as e:
+                except Exception as e:  # serialx.SerialException is not an OSError
                     LOGGER.warning("Reconnect attempt failed: %r", e)
                     delay = self._last_reconn_delay
                     continue

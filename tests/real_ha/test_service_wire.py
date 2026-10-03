@@ -35,7 +35,8 @@ def report(device_code: int, payload: bytes) -> bytes:
             "set_temperature",
             {"temperature": 23, "hvac_mode": "dry"},
             b"\x10\x00\x01\x00\x15\x16\x00\x00",
-            b"\x10\x02\x00\x00\x00\x17\x00\x00",
+            # Mode and target change; the reported fan code (0x01) is kept.
+            b"\x10\x02\x01\x00\x00\x17\x00\x00",
             "dry",
         ),
         (

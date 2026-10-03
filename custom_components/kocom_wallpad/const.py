@@ -30,6 +30,7 @@ SEND_RETRY_MAX = 3
 SEND_RETRY_GAP = 0.15
 CMD_CONFIRM_TIMEOUT = 1.0  # 보낸 뒤 상태 확인을 기다리는 최대 시간
 CMD_DEADLINE_SEC: Final = 10.0  # Queue, idle, send, retries and confirmation.
+LOOP_ERROR_BACKOFF_SEC: Final = 1.0  # Pause before recovering from an unexpected error.
 
 class DeviceType(IntEnum):
     """Device types."""

@@ -121,7 +121,11 @@ class KocomController:
         self._rx_buf.extend(chunk)
         for pkt in self._split_buf():
             LOGGER.debug("Packet received: raw=%s", pkt.hex())
-            self._dispatch_packet(pkt)
+            try:
+                self._dispatch_packet(pkt)
+            except Exception:
+                # A malformed or unexpected frame must not stop the receive loop.
+                LOGGER.exception("Failed to handle packet: raw=%s", pkt.hex())
 
     def _split_buf(self) -> List[bytes]:
         packets: List[bytes] = []
@@ -198,8 +202,9 @@ class KocomController:
 
     def _handle_cutoff_switch(self, frame: PacketFrame) -> DeviceState:
         if frame.command in (0x65, 0x66):
+            # Own device type: with LIGHT this key equals room 0 light 0.
             key = DeviceKey(
-                device_type=frame.dev_type,
+                device_type=DeviceType.LIGHTCUTOFF,
                 room_index=0,
                 device_index=0,
                 sub_type=SubType.NONE,
@@ -777,6 +782,26 @@ class KocomController:
             return self._expect_for_airconditioner(key, action, **kwargs)
         return self._match_key_and(key, lambda _d: False), CMD_CONFIRM_TIMEOUT
 
+    def _seed_from_report(
+        self, key: DeviceKey, data: bytearray, indices: tuple[int, ...]
+    ) -> None:
+        """Carry the last reported value of fields a command does not change.
+
+        Command bytes an action leaves out would be sent as zero, and the wallpad
+        may read that as a real value (air-conditioner mode 0 is cool, ventilation
+        speed 0 is stopped). The command fields sit at the same offsets as in the
+        status report, so the last report is echoed for them. Without a known
+        report the bytes stay zero, as before.
+        """
+        registry = getattr(self.gateway, "registry", None)
+        known = registry.get(key) if registry is not None else None
+        packet = getattr(known, "_packet", None)
+        if not packet or len(packet) != PACKET_LEN:
+            return
+        payload = PacketFrame(bytes(packet)).payload
+        for index in indices:
+            data[index] = payload[index]
+
     def generate_command(
         self, key: DeviceKey, action: str, **kwargs
     ) -> Tuple[bytes, Predicate, float]:
@@ -800,11 +825,11 @@ class KocomController:
         if device_type in (DeviceType.LIGHT, DeviceType.OUTLET):
             data = self._generate_switch(key, action, data)
         elif device_type == DeviceType.VENTILATION:
-            data = self._generate_ventilation(action, data, **kwargs)
+            data = self._generate_ventilation(key, action, data, **kwargs)
         elif device_type == DeviceType.THERMOSTAT:
-            data = self._generate_thermostat(action, data, **kwargs)
+            data = self._generate_thermostat(key, action, data, **kwargs)
         elif device_type == DeviceType.AIRCONDITIONER:
-            data = self._generate_airconditioner(action, data, **kwargs)
+            data = self._generate_airconditioner(key, action, data, **kwargs)
         elif device_type == DeviceType.GASVALVE:
             command = bytes([0x02])
         elif device_type == DeviceType.ELEVATOR:
@@ -845,13 +870,17 @@ class KocomController:
                 data[idx] = 0xFF if action == "turn_on" else 0x00
         return data
 
-    def _generate_ventilation(self, action: str, data: bytes, **kwargs: Any) -> bytes:
+    def _generate_ventilation(
+        self, key: DeviceKey, action: str, data: bytearray, **kwargs: Any
+    ) -> bytearray:
         if action == "set_preset":
             pm = kwargs["preset_mode"]
+            self._seed_from_report(key, data, (2,))  # keep the current speed
             data[0] = 0x11
             data[1] = REV_VENT_PRESET_MAP[pm]
         elif action == "set_percentage":
             speed = kwargs["speed"]
+            self._seed_from_report(key, data, (1,))  # keep the current preset
             data[0] = 0x00 if speed == 0 else 0x11
             data[2] = speed
             if (preset_mode := kwargs.get("preset_mode")) is not None:
@@ -860,7 +889,10 @@ class KocomController:
             data[0] = 0x11 if action == "turn_on" else 0x00
         return data
 
-    def _generate_thermostat(self, action: str, data: bytes, **kwargs: Any) -> bytes:
+    def _generate_thermostat(
+        self, key: DeviceKey, action: str, data: bytearray, **kwargs: Any
+    ) -> bytearray:
+        self._seed_from_report(key, data, (1, 2))  # preset and target temperature
         if action == "set_hvac":
             hm = kwargs["hvac_mode"]
             data[0] = 0x11 if hm == HVACMode.HEAT else 0x00
@@ -876,8 +908,9 @@ class KocomController:
         return data
 
     def _generate_airconditioner(
-        self, action: str, data: bytes, **kwargs: Any
-    ) -> bytes:
+        self, key: DeviceKey, action: str, data: bytearray, **kwargs: Any
+    ) -> bytearray:
+        self._seed_from_report(key, data, (1, 2, 5))  # mode, fan, target temperature
         if action == "set_hvac":
             hm = kwargs["hvac_mode"]
             if hm == HVACMode.OFF:

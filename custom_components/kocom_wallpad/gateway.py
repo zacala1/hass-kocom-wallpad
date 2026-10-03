@@ -19,6 +19,7 @@ from .const import (
     DOMAIN,
     IDLE_GAP_SEC,
     LOGGER,
+    LOOP_ERROR_BACKOFF_SEC,
     RECV_POLL_SEC,
     SEND_RETRY_GAP,
     SEND_RETRY_MAX,
@@ -147,6 +148,8 @@ class KocomGateway:
         self._last_tx_monotonic = self.conn.idle_since()
         self._task_reader = asyncio.create_task(self._read_loop())
         self._task_sender = asyncio.create_task(self._sender_loop())
+        for task in (self._task_reader, self._task_sender):
+            task.add_done_callback(self._on_task_done)
 
     async def async_stop(self, event: Event | None = None) -> None:
         LOGGER.info("Stopping gateway - %s:%s", self.host, self.port or "")
@@ -179,17 +182,36 @@ class KocomGateway:
     def is_idle(self) -> bool:
         return self.conn.idle_since() >= IDLE_GAP_SEC
 
+    @callback
+    def _on_task_done(self, task: asyncio.Task[None]) -> None:
+        """Reload the entry if a background loop ends without being cancelled."""
+        if task.cancelled():
+            return
+        LOGGER.error(
+            "Gateway task %s stopped unexpectedly; reloading the integration",
+            task.get_name(),
+            exc_info=task.exception(),
+        )
+        self.hass.config_entries.async_schedule_reload(self.entry.entry_id)
+
     async def _read_loop(self) -> None:
         try:
             LOGGER.debug("Starting read loop")
             while True:
-                if not self.conn._is_connected():
-                    await self.conn.reconnect()
-                    continue
-                chunk = await self.conn.recv(512, RECV_POLL_SEC)
-                if chunk:
-                    self._last_rx_monotonic = asyncio.get_running_loop().time()
-                    self.controller.feed(chunk)
+                try:
+                    if not self.conn._is_connected():
+                        await self.conn.reconnect()
+                        continue
+                    chunk = await self.conn.recv(512, RECV_POLL_SEC)
+                    if chunk:
+                        self._last_rx_monotonic = asyncio.get_running_loop().time()
+                        self.controller.feed(chunk)
+                except Exception:
+                    # Never let one failure end the loop: treat the link as lost so
+                    # the next pass reconnects, and avoid a tight error spin.
+                    LOGGER.exception("Unexpected error in read loop; reconnecting")
+                    self.conn.mark_disconnected()
+                    await asyncio.sleep(LOOP_ERROR_BACKOFF_SEC)
         except asyncio.CancelledError:
             LOGGER.debug("Read loop cancelled")
             raise
@@ -281,11 +303,14 @@ class KocomGateway:
         if ent_entry and ent_entry.unique_id:
             self._force_register_uid = ent_entry.unique_id.split(":")[0]
         LOGGER.debug("Restore state -> packet: %s", packet)
-        self.controller._dispatch_packet(bytes.fromhex(packet))
-        self._force_register_uid = None
+        try:
+            self.controller._dispatch_packet(bytes.fromhex(packet))
+        finally:
+            self._force_register_uid = None
         device_storage = state.extra_data.as_dict().get("device_storage", {})
         LOGGER.debug("Restore state -> device_storage: %s", device_storage)
-        self.controller._device_storage = device_storage
+        if isinstance(device_storage, dict):
+            self.controller._device_storage = device_storage
 
     async def async_get_entity_registry(self) -> None:
         self._restore_mode = True
@@ -293,7 +318,15 @@ class KocomGateway:
             entity_registry = er.async_get(self.hass)
             entities = er.async_entries_for_config_entry(entity_registry, self.entry.entry_id)
             for entity in entities:
-                await self._async_put_entity_dispatch_packet(entity.entity_id)
+                try:
+                    await self._async_put_entity_dispatch_packet(entity.entity_id)
+                except Exception:
+                    # Damaged saved state must not keep the integration from loading.
+                    LOGGER.warning(
+                        "Skipping unrestorable saved state for %s",
+                        entity.entity_id,
+                        exc_info=True,
+                    )
         finally:
             self._restore_mode = False
 
@@ -363,6 +396,9 @@ class KocomGateway:
                         item.future.set_result(success)
                 except TimeoutError:
                     LOGGER.warning("Command '%s' exceeded its deadline or was cancelled.", item.action)
+                except Exception:
+                    # A failing command must not stop the queue for later commands.
+                    LOGGER.exception("Command '%s' failed unexpectedly.", item.action)
                 finally:
                     if not item.future.done():
                         item.future.set_result(False)
@@ -404,7 +440,7 @@ class KocomGateway:
             try:
                 try:
                     await self.conn.send(packet)
-                except (OSError, RuntimeError, ValueError) as e:
+                except Exception as e:  # transport errors, incl. non-OSError serial ones
                     LOGGER.warning("Send failed on attempt %d: %s", attempt, e)
                 else:
                     self._last_tx_monotonic = loop.time()

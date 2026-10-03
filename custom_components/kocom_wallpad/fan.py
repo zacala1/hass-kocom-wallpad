@@ -86,12 +86,15 @@ class KocomFan(KocomBaseEntity, FanEntity):
         return len(self._device.attribute["speed_list"])
 
     @property
-    def percentage(self) -> int:
-        if not self._device.state["state"] or self._device.state["speed"] == 0:
+    def percentage(self) -> int | None:
+        speed = self._device.state["speed"]
+        if not self._device.state["state"] or speed == 0:
             return 0
-        return ordered_list_item_to_percentage(
-            self._device.attribute["speed_list"], self._device.state["speed"]
-        )
+        speed_list = self._device.attribute["speed_list"]
+        if speed not in speed_list:
+            # A speed code this integration does not know has no known percentage.
+            return None
+        return ordered_list_item_to_percentage(speed_list, speed)
 
     @property
     def preset_mode(self) -> str:

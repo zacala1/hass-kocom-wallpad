@@ -8,6 +8,7 @@ from homeassistant.components.light import LightEntity, ColorMode
 
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -15,7 +16,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from .gateway import KocomGateway
 from .models import DeviceState
 from .entity_base import KocomBaseEntity
-from .const import DOMAIN, LOGGER
+from .const import DOMAIN, LOGGER, DeviceType
 
 
 async def async_setup_entry(
@@ -61,8 +62,15 @@ class KocomLight(KocomBaseEntity, LightEntity):
     def is_on(self) -> bool:
         return self._device.state
 
+    def _ensure_controllable(self) -> None:
+        if self._device.key.device_type == DeviceType.LIGHTCUTOFF:
+            message = "The all-off signal is state only and cannot be controlled"
+            raise HomeAssistantError(message)
+
     async def async_turn_on(self, **kwargs: Any) -> None:
+        self._ensure_controllable()
         await self.async_send_command("turn_on")
 
     async def async_turn_off(self, **kwargs: Any) -> None:
+        self._ensure_controllable()
         await self.async_send_command("turn_off")
