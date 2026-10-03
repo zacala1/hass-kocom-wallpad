@@ -26,7 +26,7 @@ if ($manifest.domain -ne 'kocom_wallpad' -or $policy.version -ne $manifest.versi
 if ($manifest.version -notmatch '^\d+\.\d+\.\d+(?:(?:b|rc)[1-9]\d*)?$') { throw 'Invalid PEP 440 release version' }
 if (-not $Tag) { $Tag = 'v' + $manifest.version }
 if ($Tag -cne ('v' + $manifest.version)) { throw 'Tag/version mismatch' }
-if (-not $hacs.zip_release -or -not $hacs.hide_default_branch -or $hacs.filename -ne 'kocom_wallpad.zip') { throw 'HACS archive contract mismatch' }
+if ($hacs.PSObject.Properties.Name -contains 'zip_release') { throw 'zip_release would make HACS require a release asset; install from the tag instead' }
 if ($hacs.homeassistant -ne $policy.ha_matrix[0].ha -or $policy.latest_stable_ha -notin $policy.ha_matrix.ha) { throw 'HA compatibility matrix mismatch' }
 foreach ($requirement in $manifest.requirements) {
     if ($requirement -notmatch '^[a-zA-Z0-9_.-]+==[a-zA-Z0-9_.+-]+$') { throw "Unpinned runtime dependency: $requirement" }
@@ -49,7 +49,7 @@ foreach ($file in $files) {
 
 if ($Publication) {
     if ($manifest.version -notmatch '(?:b|rc)[1-9]\d*$') { throw 'Stable publication is forbidden by this workflow' }
-    if ($policy.publication_enabled -isnot [bool] -or -not $policy.publication_enabled) { throw 'Publication is disabled: see docs/release.md' }
+    if ($policy.publication_enabled -isnot [bool] -or -not $policy.publication_enabled) { throw 'Publication is disabled: see release/policy.json' }
     $runtimeTree = Invoke-RepositoryGit @('rev-parse', ('HEAD:' + $prefix.TrimEnd('/')))
     if ($policy.runtime_tree -cne $runtimeTree) { throw 'Release evidence does not match runtime tree' }
     if ($policy.license_reviewed -isnot [bool] -or -not $policy.license_reviewed -or -not (Test-Path -LiteralPath (Join-Path $Root 'LICENSE') -PathType Leaf)) { throw 'License/redistribution review is missing' }

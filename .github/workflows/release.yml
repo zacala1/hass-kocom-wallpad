@@ -56,4 +56,4 @@ jobs:
             echo 'Release already exists; refusing overwrite' >&2
             exit 1
           fi
-          gh release create "$GITHUB_REF_NAME" dist/kocom_wallpad.zip dist/kocom_wallpad.zip.sha256 --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease --latest=false --title "$GITHUB_REF_NAME" --notes-file CHANGELOG.md
+          gh release create "$GITHUB_REF_NAME" dist/kocom_wallpad.zip dist/kocom_wallpad.zip.sha256 --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease --latest=false --title "$GITHUB_REF_NAME" --generate-notes
