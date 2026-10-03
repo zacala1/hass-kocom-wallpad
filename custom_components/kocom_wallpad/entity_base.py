@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.restore_state import RestoreEntity, RestoredExtraData
 from homeassistant.core import callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.const import Platform
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.components.light import LightEntityDescription
@@ -15,6 +18,10 @@ from homeassistant.components.sensor import SensorEntityDescription
 from homeassistant.components.binary_sensor import BinarySensorEntityDescription
 
 from .const import DOMAIN, DeviceType, SubType
+
+if TYPE_CHECKING:
+    from .gateway import KocomGateway
+    from .models import DeviceState
 
 
 ENTITY_DESCRIPTION_MAP = {
@@ -30,7 +37,7 @@ ENTITY_DESCRIPTION_MAP = {
 class KocomBaseEntity(RestoreEntity):
     """Base class for Kocom entities."""
 
-    def __init__(self, gateway, device) -> None:
+    def __init__(self, gateway: KocomGateway, device: DeviceState) -> None:
         """Initialize the base entity."""
         super().__init__()
         self.gateway = gateway
@@ -52,6 +59,17 @@ class KocomBaseEntity(RestoreEntity):
             model="Smart Wallpad",
             name=f"{self.format_identifiers}",
         )
+
+    async def async_send_command(
+        self, action: str, **kwargs: bool | int | float | str
+    ) -> None:
+        """Raise an HA action error unless the gateway confirms the command."""
+        confirmed = await self.gateway.async_send_action(
+            self._device.key, action, **kwargs
+        )
+        if confirmed is not True:
+            message = "Kocom command was not confirmed"
+            raise HomeAssistantError(message)
         
     @property
     def format_key(self) -> str:

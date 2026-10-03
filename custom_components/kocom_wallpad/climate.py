@@ -116,18 +116,18 @@ class KocomClimate(KocomBaseEntity, ClimateEntity):
     
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         args = {"hvac_mode": hvac_mode}
-        await self.gateway.async_send_action(self._device.key, "set_hvac", **args)
+        await self.async_send_command("set_hvac", **args)
         
     async def async_set_fan_mode(self, fan_mode: str) -> None:
         args = {"fan_mode": fan_mode}
-        await self.gateway.async_send_action(self._device.key, "set_fan", **args)
+        await self.async_send_command("set_fan", **args)
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         args = {"preset_mode": preset_mode}
-        await self.gateway.async_send_action(self._device.key, "set_preset", **args)
+        await self.async_send_command("set_preset", **args)
 
     async def async_set_temperature(self, **kwargs) -> None:
         args: dict[str, float | HVACMode] = {"target_temp": float(kwargs[ATTR_TEMPERATURE])}
         if (hvac_mode := kwargs.get("hvac_mode")) is not None:
             args["hvac_mode"] = HVACMode(hvac_mode)
-        await self.gateway.async_send_action(self._device.key, "set_temperature", **args)
+        await self.async_send_command("set_temperature", **args)

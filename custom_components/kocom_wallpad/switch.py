@@ -63,7 +63,7 @@ class KocomSwitch(KocomBaseEntity, SwitchEntity):
         return self._device.state
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self.gateway.async_send_action(self._device.key, "turn_on")
+        await self.async_send_command("turn_on")
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self.gateway.async_send_action(self._device.key, "turn_off")
+        await self.async_send_command("turn_off")

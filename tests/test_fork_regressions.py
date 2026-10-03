@@ -142,7 +142,7 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
 
 class GatewayTests(unittest.IsolatedAsyncioTestCase):
     def gateway(self) -> KocomGateway:
-        return KocomGateway(SimpleNamespace(), SimpleNamespace(), "wallpad", 8899)
+        return KocomGateway(SimpleNamespace(), SimpleNamespace(entry_id="test"), "wallpad", 8899)
 
     async def test_stop_resolves_queued_commands(self) -> None:
         gateway = self.gateway()
@@ -232,7 +232,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({}, hass.data["kocom_wallpad"])
 
     async def test_immediate_reply_confirms_command(self) -> None:
-        gateway = KocomGateway(SimpleNamespace(), SimpleNamespace(), "wallpad", 8899)
+        gateway = KocomGateway(SimpleNamespace(), SimpleNamespace(entry_id="test"), "wallpad", 8899)
         key = DeviceKey(DeviceType.LIGHT, 1, 0, SubType.NONE)
         state = DeviceState(key, Platform.LIGHT, {}, True)
 

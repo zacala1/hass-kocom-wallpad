@@ -27,7 +27,7 @@ def fan_entity() -> KocomFan:
         },
         {"state": False, "speed": 1, "preset_mode": "ventilation"},
     )
-    gateway = SimpleNamespace(host="wallpad", async_send_action=AsyncMock())
+    gateway = SimpleNamespace(host="wallpad", async_send_action=AsyncMock(return_value=True))
     return KocomFan(gateway, device)
 
 
@@ -107,7 +107,7 @@ async def test_climate_temperature_when_mode_supplied() -> None:
     # Given a thermostat using the existing protocol commands.
     key = DeviceKey(DeviceType.THERMOSTAT, 1, 0, SubType.NONE)
     device = DeviceState(key, Platform.CLIMATE, {}, {})
-    gateway = SimpleNamespace(host="wallpad", async_send_action=AsyncMock())
+    gateway = SimpleNamespace(host="wallpad", async_send_action=AsyncMock(return_value=True))
     entity = KocomClimate(gateway, device)
     # When a climate temperature service also requests a mode.
     await entity.async_set_temperature(

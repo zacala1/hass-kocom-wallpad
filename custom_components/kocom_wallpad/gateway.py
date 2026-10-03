@@ -191,7 +191,9 @@ class KocomGateway:
             LOGGER.debug("Read loop cancelled")
             raise
 
-    async def async_send_action(self, key: DeviceKey, action: str, **kwargs) -> bool:
+    async def async_send_action(
+        self, key: DeviceKey, action: str, **kwargs: bool | int | float | str
+    ) -> bool:
         item = _CmdItem(key=key, action=action, kwargs=kwargs)
         await self._tx_queue.put(item)
         try:

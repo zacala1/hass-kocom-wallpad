@@ -38,7 +38,7 @@ async def test_temperature_wire_when_mode_explicit(
     # Given the real entity and encoder; only physical transmission is recorded.
     key = DeviceKey(device_type, 1, 0, SubType.NONE)
     device = DeviceState(key, Platform.CLIMATE, {}, {})
-    gateway = SimpleNamespace(host="wallpad", async_send_action=AsyncMock())
+    gateway = SimpleNamespace(host="wallpad", async_send_action=AsyncMock(return_value=True))
     entity = KocomClimate(gateway, device)
     controller = KocomController(gateway)
     # When HA asks for a temperature and mode in the same service request.
@@ -75,7 +75,7 @@ async def test_fan_wire_when_speed_and_preset_explicit() -> None:
         },
         {},
     )
-    gateway = SimpleNamespace(host="wallpad", async_send_action=AsyncMock())
+    gateway = SimpleNamespace(host="wallpad", async_send_action=AsyncMock(return_value=True))
     entity = KocomFan(gateway, device)
     controller = KocomController(gateway)
     # When the real HA handler forwards both controls.
