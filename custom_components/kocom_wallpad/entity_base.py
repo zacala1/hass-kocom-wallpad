@@ -36,6 +36,7 @@ class KocomBaseEntity(RestoreEntity):
         self.gateway = gateway
         self._device = device
         self._unsubs: list[callable] = []
+        self._attr_available = False
 
         self._attr_unique_id = f"{device.key.unique_id}:{self.gateway.host}"
         self.entity_description = ENTITY_DESCRIPTION_MAP[self._device.platform](
@@ -80,13 +81,25 @@ class KocomBaseEntity(RestoreEntity):
             return f"KOCOM {self._device.key.device_type.name}"
 
     async def async_added_to_hass(self):
+        self._attr_available = self.gateway.is_device_available(self._device.key)
         sig = self.gateway.async_signal_device_updated(self._device.key.unique_id)
 
         @callback
         def _handle_update(dev):
             self._device = dev
+            self._attr_available = self.gateway.is_device_available(dev.key)
             self.update_from_state()
         self._unsubs.append(async_dispatcher_connect(self.hass, sig, _handle_update))
+
+        @callback
+        def _handle_connection(connected: bool) -> None:
+            if not connected:
+                self._attr_available = False
+                self.async_write_ha_state()
+
+        self._unsubs.append(async_dispatcher_connect(
+            self.hass, self.gateway.async_signal_connection_state(), _handle_connection
+        ))
 
     async def async_will_remove_from_hass(self) -> None:
         for unsub in self._unsubs:

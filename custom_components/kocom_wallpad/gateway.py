@@ -123,6 +123,7 @@ class KocomGateway:
         self.host = host
         self.port = port
         self.conn = AsyncConnection(host=host, port=port)
+        self.conn.connection_state_callback = self._on_connection_state
         self.controller = KocomController(self)
         self.registry = EntityRegistry()
         self._tx_queue: asyncio.Queue[_CmdItem] = asyncio.Queue()
@@ -134,6 +135,7 @@ class KocomGateway:
         self._last_tx_monotonic: float = 0.0
         self._restore_mode: bool = False
         self._force_register_uid: str | None = None
+        self._fresh_keys: set[tuple[int, int, int, int]] = set()
 
     async def async_start(self) -> None:
         LOGGER.info("Starting gateway - %s:%s", self.host, self.port or "")
@@ -204,6 +206,9 @@ class KocomGateway:
             raise
 
     def on_device_state(self, dev: DeviceState) -> None:  
+        was_available = self.is_device_available(dev.key)
+        if self.conn._is_connected() and not self._restore_mode:
+            self._fresh_keys.add(dev.key.key)
         allow_insert = True
         if dev.key.device_type in (DeviceType.LIGHT, DeviceType.OUTLET):
             allow_insert = bool(getattr(dev, "_is_register", True))
@@ -221,7 +226,7 @@ class KocomGateway:
             self._notify_pendings(dev)
             return
 
-        if changed:
+        if changed or (not was_available and self.is_device_available(dev.key)):
             LOGGER.debug("Device state has been changed. Update -> %s", dev.key)
             async_dispatcher_send(
                 self.hass,
@@ -237,6 +242,20 @@ class KocomGateway:
     @callback
     def async_signal_device_updated(self, unique_id: str) -> str:
         return f"{DOMAIN}_updated_{unique_id}"
+
+    @callback
+    def async_signal_connection_state(self) -> str:
+        return f"{DOMAIN}_connection_{self.entry.entry_id}"
+
+    @callback
+    def _on_connection_state(self, connected: bool) -> None:
+        if not connected:
+            self._fresh_keys.clear()
+        async_dispatcher_send(self.hass, self.async_signal_connection_state(), connected)
+
+    def is_device_available(self, key: DeviceKey) -> bool:
+        """Require a fresh report for this device on the current connection."""
+        return self.conn._is_connected() and key.key in self._fresh_keys
 
     def get_devices_from_platform(self, platform: Platform) -> list[DeviceState]:
         return self.registry.all_by_platform(platform)

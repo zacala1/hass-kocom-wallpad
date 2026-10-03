@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
 import asyncio
 import serialx
 import time
@@ -19,6 +19,7 @@ class AsyncConnection:
     serial_baud: int = 9600
     connect_timeout: float = 5.0
     reconnect_backoff: Tuple[float, float] = (1.0, 30.0)  # min, max seconds
+    connection_state_callback: Callable[[bool], None] | None = None
 
     def __post_init__(self) -> None:
         """Initialize the connection."""
@@ -45,7 +46,7 @@ class AsyncConnection:
                 timeout=self.connect_timeout,
             )
             LOGGER.info("Connection opened for socket: %s:%s", self.host, self.port)
-        self._connected = True
+        self._set_connected(True)
         self._touch()
 
     async def open(self) -> None:
@@ -72,11 +73,19 @@ class AsyncConnection:
             self._writer = None
 
     async def close(self) -> None:
+        self._set_connected(False)
         if self._writer is not None:
             LOGGER.info("Closing connection")
         await self._close_writer()
         self._reader = None
-        self._connected = False
+
+    def _set_connected(self, connected: bool) -> None:
+        """Publish transport transitions immediately, before recovery awaits."""
+        if self._connected == connected:
+            return
+        self._connected = connected
+        if self.connection_state_callback is not None:
+            self.connection_state_callback(connected)
 
     def _is_connected(self) -> bool:
         return self._connected
@@ -97,11 +106,11 @@ class AsyncConnection:
             self._touch()
             return len(data)
         except asyncio.CancelledError:
-            self._connected = False
+            self._set_connected(False)
             raise
         except (OSError, RuntimeError, ValueError) as e:
             LOGGER.warning("Send failed: %r", e)
-            self._connected = False
+            self._set_connected(False)
             raise
 
     async def recv(self, nbytes: int, timeout: float = 0.05) -> bytes:
@@ -113,7 +122,7 @@ class AsyncConnection:
             return b""
         except (OSError, RuntimeError, ValueError) as e:
             LOGGER.warning("Recv failed: %r", e)
-            self._connected = False
+            self._set_connected(False)
             await self.reconnect()
             return b""
         if chunk:
