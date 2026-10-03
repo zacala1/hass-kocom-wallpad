@@ -17,6 +17,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from .const import (
     CMD_DEADLINE_SEC,
     DOMAIN,
+    EVENT_DRIVEN_DEVICE_TYPES,
     IDLE_GAP_SEC,
     LOGGER,
     LOOP_ERROR_BACKOFF_SEC,
@@ -264,7 +265,7 @@ class KocomGateway:
 
     @callback
     def async_signal_new_device(self, platform: Platform) -> str:
-        return f"{DOMAIN}_new_{platform.value}_{self.host}"
+        return f"{DOMAIN}_new_{platform.value}_{self.entry.entry_id}"
 
     @callback
     def async_signal_device_updated(self, unique_id: str) -> str:
@@ -285,8 +286,19 @@ class KocomGateway:
         )
 
     def is_device_available(self, key: DeviceKey) -> bool:
-        """Require a fresh report for this device on the current connection."""
-        return self.conn._is_connected() and key.key in self._fresh_keys
+        """Require a fresh report for this device on the current connection.
+
+        Event-driven devices (gas valve, elevator, motion) are the exception: once
+        known they stay available while connected, keeping the last known state.
+        """
+        if not self.conn._is_connected():
+            return False
+        if key.key in self._fresh_keys:
+            return True
+        return (
+            key.device_type in EVENT_DRIVEN_DEVICE_TYPES
+            and self.registry.get(key) is not None
+        )
 
     def get_devices_from_platform(self, platform: Platform) -> list[DeviceState]:
         return self.registry.all_by_platform(platform)
@@ -310,7 +322,7 @@ class KocomGateway:
         device_storage = state.extra_data.as_dict().get("device_storage", {})
         LOGGER.debug("Restore state -> device_storage: %s", device_storage)
         if isinstance(device_storage, dict):
-            self.controller._device_storage = device_storage
+            self.controller.merge_device_storage(device_storage)
 
     async def async_get_entity_registry(self) -> None:
         self._restore_mode = True

@@ -111,6 +111,32 @@ class KocomController:
         self._rx_buf = bytearray()
         self._device_storage: dict[str, Any] = {}
 
+    def merge_device_storage(self, saved: dict[str, Any]) -> None:
+        """Merge learned values restored from one entity into the live storage.
+
+        Every entity saves a snapshot of the shared storage, so restoring them one
+        by one must not let the last snapshot replace what the others contributed:
+        lists are united, flags are or-ed and other values take the latest snapshot.
+        """
+        for name, value in saved.items():
+            current = self._device_storage.get(name)
+            if isinstance(current, list) and isinstance(value, list):
+                self._device_storage[name] = [
+                    *current,
+                    *(item for item in value if item not in current),
+                ]
+            elif isinstance(current, bool) and isinstance(value, bool):
+                self._device_storage[name] = current or value
+            else:
+                self._device_storage[name] = list(value) if isinstance(value, list) else value
+
+    def _is_known_or_restoring(self, key: DeviceKey) -> bool:
+        """Whether a zero reading must still be published for this sensor."""
+        registry = getattr(self.gateway, "registry", None)
+        return (
+            registry is not None and registry.get(key) is not None
+        ) or getattr(self.gateway, "_force_register_uid", None) == key.unique_id
+
     @staticmethod
     def _checksum(buf: bytes) -> int:
         return sum(buf) % 256
@@ -313,7 +339,7 @@ class KocomController:
                 "device_class": SensorDeviceClass.TEMPERATURE,
                 "unit_of_measurement": UnitOfTemperature.CELSIUS,
             }
-            if hot_temp > 0:
+            if hot_temp > 0 or self._is_known_or_restoring(key):
                 dev = DeviceState(
                     key=key,
                     platform=Platform.SENSOR,
@@ -332,7 +358,7 @@ class KocomController:
                 "device_class": SensorDeviceClass.TEMPERATURE,
                 "unit_of_measurement": UnitOfTemperature.CELSIUS,
             }
-            if heat_temp > 0:
+            if heat_temp > 0 or self._is_known_or_restoring(key):
                 dev = DeviceState(
                     key=key,
                     platform=Platform.SENSOR,
@@ -443,7 +469,7 @@ class KocomController:
                 "device_class": SensorDeviceClass.CO2,
                 "unit_of_measurement": "ppm",
             }
-            if co2_value > 0:
+            if co2_value > 0 or self._is_known_or_restoring(key):
                 dev = DeviceState(
                     key=key,
                     platform=Platform.SENSOR,
@@ -595,11 +621,7 @@ class KocomController:
                     "device_class": device_class,
                     "unit_of_measurement": native_unit,
                 }
-                if (
-                    state > 0
-                    or self.gateway.registry.get(key) is not None
-                    or self.gateway._force_register_uid == key.unique_id
-                ):
+                if state > 0 or self._is_known_or_restoring(key):
                     dev = DeviceState(
                         key=key,
                         platform=Platform.SENSOR,
@@ -831,6 +853,8 @@ class KocomController:
         elif device_type == DeviceType.AIRCONDITIONER:
             data = self._generate_airconditioner(key, action, data, **kwargs)
         elif device_type == DeviceType.GASVALVE:
+            if action != "turn_off":
+                raise ValueError("The gas valve frame only supports turn_off")
             command = bytes([0x02])
         elif device_type == DeviceType.ELEVATOR:
             dest_dev = bytes([0x01])

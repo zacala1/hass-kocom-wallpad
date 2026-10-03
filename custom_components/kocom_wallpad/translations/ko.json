@@ -19,13 +19,26 @@
                 "data_description": {
                     "host": "시리얼 통신인 경우 호스트에 입력하고 포트는 무시하세요."
                 }
+            },
+            "reconfigure": {
+                "description": "장치의 주소와 포트를 변경합니다. 기존 엔티티는 유지됩니다.",
+                "data": {
+                    "host": "호스트",
+                    "port": "포트"
+                },
+                "data_description": {
+                    "host": "시리얼 통신인 경우 호스트에 입력하고 포트는 무시하세요."
+                }
             }
         },
         "abort": {
-            "single_instance_allowed": "단일 구성만 허용됩니다."
+            "single_instance_allowed": "단일 구성만 허용됩니다.",
+            "already_configured": "이미 구성된 장치입니다.",
+            "reconfigure_successful": "연결 설정을 변경했습니다."
         },
         "error": {
-            "cannot_connect": "연결할 수 없습니다."
+            "cannot_connect": "연결할 수 없습니다. 주소와 포트를 확인하고, 다른 프로그램이 같은 연결을 쓰고 있지 않은지 확인하세요.",
+            "invalid_host": "호스트 이름, IP 주소 또는 시리얼 장치 경로를 입력하세요."
         }
     },
     "entity": {

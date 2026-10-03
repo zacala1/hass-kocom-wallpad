@@ -98,12 +98,13 @@ class KocomClimate(KocomBaseEntity, ClimateEntity):
         return self._device.attribute.get("preset_modes")
 
     @property
-    def current_temperature(self) -> float:
-        return self._device.state["current_temp"]
+    def current_temperature(self) -> float | None:
+        # The wallpad reports 0 when it has no reading; that is not 0 degC.
+        return self._device.state["current_temp"] or None
 
     @property
-    def target_temperature(self) -> float:
-        return self._device.state["target_temp"]
+    def target_temperature(self) -> float | None:
+        return self._device.state["target_temp"] or None
     
     @property
     def target_temperature_step(self) -> float:

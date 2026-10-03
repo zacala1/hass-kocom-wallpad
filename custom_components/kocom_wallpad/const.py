@@ -48,6 +48,14 @@ class DeviceType(IntEnum):
     AIRQUALITY = 11
 
 
+# Devices whose wallpad reports arrive only when something happens, not on a poll.
+# After a restart or reconnect they cannot prove freshness, so a known device stays
+# available instead of waiting for an event that may not come for days.
+EVENT_DRIVEN_DEVICE_TYPES: Final = frozenset(
+    {DeviceType.GASVALVE, DeviceType.ELEVATOR, DeviceType.MOTION}
+)
+
+
 class SubType(IntEnum):
     """Sub types."""
     NONE = 0

@@ -19,13 +19,26 @@
                 "data_description": {
                     "host": "If it is serial communication, enter Host and ignore Port."
                 }
+            },
+            "reconfigure": {
+                "description": "Change the device's address and port. Existing entities are kept.",
+                "data": {
+                    "host": "Host",
+                    "port": "Port"
+                },
+                "data_description": {
+                    "host": "If it is serial communication, enter Host and ignore Port."
+                }
             }
         },
         "abort": {
-            "single_instance_allowed": "Only a single configuration is allowed."
+            "single_instance_allowed": "Only a single configuration is allowed.",
+            "already_configured": "This device is already configured.",
+            "reconfigure_successful": "The connection settings were updated."
         },
         "error": {
-            "cannot_connect": "Failed to connect."
+            "cannot_connect": "Could not connect. Check the address and port, and that no other program is using the connection.",
+            "invalid_host": "Enter a host name, IP address or serial device path."
         }
     },
     "entity": {

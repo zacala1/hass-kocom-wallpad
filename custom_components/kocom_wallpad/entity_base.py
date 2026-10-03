@@ -113,8 +113,13 @@ class KocomBaseEntity(RestoreEntity):
         @callback
         # HA dispatcher callbacks receive this state as a positional argument.
         def _handle_connection(connected: bool) -> None:  # noqa: FBT001
-            if not connected:
-                self._attr_available = False
+            # Losing the link always blocks; regaining it only helps devices that
+            # stay available without a fresh report (see is_device_available).
+            available = connected and self.gateway.is_device_available(
+                self._device.key
+            )
+            if available != self._attr_available:
+                self._attr_available = available
                 self.async_write_ha_state()
 
         self._unsubs.append(async_dispatcher_connect(
