@@ -9,8 +9,9 @@
   "quality_contract_evidence": "",
   "latest_stable_ha": "2026.9.4",
   "ha_matrix": [
-    {"ha": "2025.2.2", "python": "3.13", "ha_test": "0.13.212"},
-    {"ha": "2025.2.5", "python": "3.13", "ha_test": "0.13.215"},
-    {"ha": "2026.9.4", "python": "3.14", "ha_test": "0.13.367"}
+    {"ha": "2025.2.2", "python": "3.13", "ha_test": "0.13.212", "serialx": "1.10.0"},
+    {"ha": "2025.2.5", "python": "3.13", "ha_test": "0.13.215", "serialx": "1.10.0"},
+    {"ha": "2026.9.4", "python": "3.14", "ha_test": "0.13.367", "serialx": "1.10.0"},
+    {"ha": "2026.9.4", "python": "3.14", "ha_test": "0.13.367", "serialx": "latest"}
   ]
 }

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections import deque
 from typing import List, Callable, Any, Tuple
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from homeassistant.const import Platform, UnitOfTemperature
 from homeassistant.components.sensor import SensorDeviceClass
@@ -22,6 +23,8 @@ from .const import (
     PACKET_SUFFIX,
     PACKET_LEN,
     CMD_CONFIRM_TIMEOUT,
+    DIAGNOSTIC_MAX_UNHANDLED,
+    DIAGNOSTIC_RECENT_FRAMES,
     DeviceType,
     SubType,
 )
@@ -48,6 +51,9 @@ class PacketFrame:
     """Packet frame."""
 
     raw: bytes
+    _peer: tuple[int, int] | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
 
     @property
     def packet_type(self) -> int:
@@ -75,17 +81,23 @@ class PacketFrame:
 
     @property
     def peer(self) -> tuple[int, int]:
+        """The device end of a frame; resolved once because every accessor asks."""
+        if self._peer is not None:
+            return self._peer
         if self.dest[0] == 0x01:
-            return (self.src[0], self.src[1])
+            peer = (self.src[0], self.src[1])
         elif self.src[0] == 0x01:
-            return (self.dest[0], self.dest[1])
+            peer = (self.dest[0], self.dest[1])
         else:
-            LOGGER.warning(
-                "Peer resolution failed: dest=%s, src=%s",
+            # Traffic between other bus participants is normal; not a warning.
+            LOGGER.debug(
+                "Frame without wallpad address: dest=%s, src=%s",
                 self.dest.hex(),
                 self.src.hex(),
             )
-            return (0, 0)
+            peer = (0, 0)
+        object.__setattr__(self, "_peer", peer)
+        return peer
 
     @property
     def dev_type(self) -> DeviceType:
@@ -110,6 +122,15 @@ class KocomController:
         self.gateway = gateway
         self._rx_buf = bytearray()
         self._device_storage: dict[str, Any] = {}
+        self._stats: dict[str, int] = {
+            "frames": 0,
+            "bad_checksum": 0,
+            "handler_errors": 0,
+            "unhandled": 0,
+            "unhandled_overflow": 0,
+        }
+        self._recent_frames: deque[str] = deque(maxlen=DIAGNOSTIC_RECENT_FRAMES)
+        self._unhandled: dict[str, dict[str, Any]] = {}
 
     def merge_device_storage(self, saved: dict[str, Any]) -> None:
         """Merge learned values restored from one entity into the live storage.
@@ -147,11 +168,46 @@ class KocomController:
         self._rx_buf.extend(chunk)
         for pkt in self._split_buf():
             LOGGER.debug("Packet received: raw=%s", pkt.hex())
+            self._stats["frames"] += 1
+            self._recent_frames.append(pkt.hex())
             try:
                 self._dispatch_packet(pkt)
             except Exception:
                 # A malformed or unexpected frame must not stop the receive loop.
+                self._stats["handler_errors"] += 1
                 LOGGER.exception("Failed to handle packet: raw=%s", pkt.hex())
+
+    def diagnostics_snapshot(self) -> dict[str, Any]:
+        """Counters, recent frames and unhandled frame kinds for diagnostics."""
+        return {
+            "stats": dict(self._stats),
+            "recent_frames": list(self._recent_frames),
+            "unhandled_frames": [
+                {"id": name, **entry} for name, entry in self._unhandled.items()
+            ],
+            "device_storage": dict(self._device_storage),
+        }
+
+    def _record_unhandled(self, frame: PacketFrame, dev_type: DeviceType) -> None:
+        """Remember a frame this integration does not understand, bounded in size."""
+        self._stats["unhandled"] += 1
+        name = f"{frame.peer[0]:02x}:{frame.command:02x}"
+        entry = self._unhandled.get(name)
+        if entry is None:
+            if len(self._unhandled) >= DIAGNOSTIC_MAX_UNHANDLED:
+                self._stats["unhandled_overflow"] += 1
+                return
+            entry = {
+                "device_type": dev_type.name.lower(),
+                "dest": frame.dest.hex(),
+                "src": frame.src.hex(),
+                "command": f"{frame.command:02x}",
+                "count": 0,
+                "first_frame": frame.raw.hex(),
+            }
+            self._unhandled[name] = entry
+        entry["count"] += 1
+        entry["last_frame"] = frame.raw.hex()
 
     def _split_buf(self) -> List[bytes]:
         packets: List[bytes] = []
@@ -182,40 +238,46 @@ class KocomController:
     def _dispatch_packet(self, packet: bytes) -> None:
         frame = PacketFrame(packet)
         if self._checksum(packet[2:18]) != frame.checksum:
+            self._stats["bad_checksum"] += 1
             LOGGER.debug("Packet checksum is invalid. raw=%s", frame.raw.hex())
             return
 
+        dev_type = frame.dev_type
+
         dev_state = None
-        if frame.dev_type == DeviceType.LIGHT:
+        if dev_type == DeviceType.LIGHT:
             if frame.dev_room == 0xFF:
                 dev_state = self._handle_cutoff_switch(frame)
             else:
                 dev_state = self._handle_switch(frame)
-        elif frame.dev_type == DeviceType.OUTLET:
+        elif dev_type == DeviceType.OUTLET:
             dev_state = self._handle_switch(frame)
-        elif frame.dev_type == DeviceType.THERMOSTAT:
+        elif dev_type == DeviceType.THERMOSTAT:
             dev_state = self._handle_thermostat(frame)
-        elif frame.dev_type == DeviceType.AIRCONDITIONER:
+        elif dev_type == DeviceType.AIRCONDITIONER:
             dev_state = self._handle_airconditioner(frame)
-        elif frame.dev_type == DeviceType.VENTILATION:
+        elif dev_type == DeviceType.VENTILATION:
             dev_state = self._handle_ventilation(frame)
-        elif frame.dev_type == DeviceType.GASVALVE:
+        elif dev_type == DeviceType.GASVALVE:
             dev_state = self._handle_gasvalve(frame)
-        elif frame.dev_type == DeviceType.ELEVATOR:
+        elif dev_type == DeviceType.ELEVATOR:
             dev_state = self._handle_elevator(frame)
-        elif frame.dev_type == DeviceType.MOTION:
+        elif dev_type == DeviceType.MOTION:
             dev_state = self._handle_motion(frame)
-        elif frame.dev_type == DeviceType.AIRQUALITY:
+        elif dev_type == DeviceType.AIRQUALITY:
             dev_state = self._handle_airquality(frame)
         else:
             LOGGER.debug(
                 "Unhandled device type: %s (raw=%s)",
-                frame.dev_type.name,
+                dev_type.name,
                 frame.raw.hex(),
             )
+            self._record_unhandled(frame, dev_type)
             return
 
         if not dev_state:
+            # A known device type with a command this integration does not decode.
+            self._record_unhandled(frame, dev_type)
             return
 
         if isinstance(dev_state, list):

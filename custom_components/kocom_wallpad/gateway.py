@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
@@ -111,6 +111,9 @@ class EntityRegistry:
     def all_by_platform(self, platform: Platform) -> List[DeviceState]:
         return list(self.by_platform.get(platform, {}).values())
 
+    def all_devices(self) -> List[DeviceState]:
+        return list(self._states.values())
+
 
 class KocomGateway:
     """Connection/Receive Loop/Transmission Queue/Entity Registry Management Hub."""
@@ -136,7 +139,7 @@ class KocomGateway:
         self._task_reader: asyncio.Task[None] | None = None
         self._task_sender: asyncio.Task[None] | None = None
         self._pendings: list[_PendingWaiter] = []
-        self._last_rx_monotonic: float = 0.0
+        self._last_rx_monotonic: float | None = None
         self._last_tx_monotonic: float = 0.0
         self._restore_mode: bool = False
         self._force_register_uid: str | None = None
@@ -145,8 +148,6 @@ class KocomGateway:
     async def async_start(self) -> None:
         LOGGER.info("Starting gateway - %s:%s", self.host, self.port or "")
         await self.conn.open()
-        self._last_rx_monotonic = self.conn.idle_since()
-        self._last_tx_monotonic = self.conn.idle_since()
         self._task_reader = asyncio.create_task(self._read_loop())
         self._task_sender = asyncio.create_task(self._sender_loop())
         for task in (self._task_reader, self._task_sender):
@@ -182,6 +183,39 @@ class KocomGateway:
 
     def is_idle(self) -> bool:
         return self.conn.idle_since() >= IDLE_GAP_SEC
+
+    def diagnostics_snapshot(self) -> dict[str, Any]:
+        """Connection, known devices and protocol counters for diagnostics."""
+        loop_time = asyncio.get_running_loop().time()
+        received = self._last_rx_monotonic
+        devices = [
+            {
+                "id": dev.key.unique_id,
+                "device_type": dev.key.device_type.name.lower(),
+                "sub_type": dev.key.sub_type.name.lower(),
+                "room": dev.key.room_index,
+                "index": dev.key.device_index,
+                "platform": dev.platform.value,
+                "available": self.is_device_available(dev.key),
+                "state": dev.state,
+                "attribute": dev.attribute,
+                "last_frame": bytes(getattr(dev, "_packet", b"")).hex(),
+            }
+            for dev in sorted(
+                self.registry.all_devices(), key=lambda dev: dev.key.key
+            )
+        ]
+        return {
+            "connection": {
+                "connected": self.conn._is_connected(),
+                "seconds_since_last_receive": (
+                    None if received is None else round(loop_time - received, 1)
+                ),
+                "queued_commands": self._tx_queue.qsize(),
+            },
+            "devices": devices,
+            **self.controller.diagnostics_snapshot(),
+        }
 
     @callback
     def _on_task_done(self, task: asyncio.Task[None]) -> None:

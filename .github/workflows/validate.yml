@@ -87,12 +87,15 @@ jobs:
         env:
           HA_VERSION: ${{ matrix.ha }}
           HA_TEST_VERSION: ${{ matrix.ha_test }}
+          SERIALX_VERSION: ${{ matrix.serialx }}
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
         run: |
+          # The manifest asks for serialx>=1.10.0, so test the locked and the newest one.
+          if [ "$SERIALX_VERSION" = latest ]; then SERIALX_SPEC=serialx; else SERIALX_SPEC="serialx==$SERIALX_VERSION"; fi
           cp -R tests/real_ha "$RUNNER_TEMP/kocom-ha-smoke/tests"
           cp pyproject.toml "$RUNNER_TEMP/kocom-ha-smoke/pyproject.toml"
           cd "$RUNNER_TEMP/kocom-ha-smoke"
-          uv run --no-project --with "homeassistant==$HA_VERSION" --with "pytest-homeassistant-custom-component==$HA_TEST_VERSION" --with serialx==1.10.0 python -c '
+          uv run --no-project --with "homeassistant==$HA_VERSION" --with "pytest-homeassistant-custom-component==$HA_TEST_VERSION" --with "$SERIALX_SPEC" python -c '
           import importlib
           import pathlib
           for module in ("__init__", "config_flow", "options_flow", "light", "switch", "climate", "fan", "sensor", "binary_sensor"):
@@ -100,7 +103,7 @@ jobs:
               assert pathlib.Path(loaded.__file__).resolve().is_relative_to(pathlib.Path.cwd())
           print("Packaged real-HA imports passed")
           '
-          uv run --no-project --with "homeassistant==$HA_VERSION" --with "pytest-homeassistant-custom-component==$HA_TEST_VERSION" --with serialx==1.10.0 python -m pytest -p pytest_asyncio.plugin tests -v
+          uv run --no-project --with "homeassistant==$HA_VERSION" --with "pytest-homeassistant-custom-component==$HA_TEST_VERSION" --with "$SERIALX_SPEC" python -m pytest -p pytest_asyncio.plugin tests -v
 
   validate-hassfest:
     runs-on: ubuntu-latest

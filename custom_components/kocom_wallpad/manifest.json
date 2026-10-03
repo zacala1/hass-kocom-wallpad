@@ -9,7 +9,7 @@
     "iot_class": "local_push",
     "issue_tracker": "https://github.com/zacala1/hass-kocom-wallpad/issues",
     "requirements": [
-        "serialx==1.10.0"
+        "serialx>=1.10.0"
     ],
     "version": "2.1.0b2"
 }

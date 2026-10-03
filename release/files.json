@@ -5,6 +5,7 @@
   "config_flow.py",
   "const.py",
   "controller.py",
+  "diagnostics.py",
   "entity_base.py",
   "fan.py",
   "gateway.py",

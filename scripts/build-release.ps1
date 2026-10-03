@@ -29,7 +29,7 @@ if ($Tag -cne ('v' + $manifest.version)) { throw 'Tag/version mismatch' }
 if ($hacs.PSObject.Properties.Name -contains 'zip_release') { throw 'zip_release would make HACS require a release asset; install from the tag instead' }
 if ($hacs.homeassistant -ne $policy.ha_matrix[0].ha -or $policy.latest_stable_ha -notin $policy.ha_matrix.ha) { throw 'HA compatibility matrix mismatch' }
 foreach ($requirement in $manifest.requirements) {
-    if ($requirement -notmatch '^[a-zA-Z0-9_.-]+==[a-zA-Z0-9_.+-]+$') { throw "Unpinned runtime dependency: $requirement" }
+    if ($requirement -notmatch '^[a-zA-Z0-9_.-]+(?:==|>=)[a-zA-Z0-9_.+-]+$') { throw "Runtime dependency needs == or a >= minimum: $requirement" }
 }
 $tracked = @(Invoke-RepositoryGit @('ls-files', '--', $prefix) | ForEach-Object { $_.Substring($prefix.Length) })
 if (Compare-Object $files $tracked) { throw 'Runtime allowlist mismatch' }
