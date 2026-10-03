@@ -4,7 +4,7 @@
 import asyncio
 
 import pytest
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, HomeAssistant, callback
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.kocom_wallpad.const import DOMAIN
@@ -102,12 +102,13 @@ async def test_service_roundtrip_when_controls_combined(  # noqa: PLR0913
                     "ventil_modes": ["ventilation", "auto"],
                 }
             )
-        unsubscribe = hass.bus.async_listen(
-            "state_changed",
-            lambda event: discovered.set()
-            if event.data["entity_id"].startswith(f"{domain}.")
-            else None,
-        )
+
+        @callback
+        def state_changed(event: Event) -> None:
+            if event.data["entity_id"].startswith(f"{domain}."):
+                discovered.set()
+
+        unsubscribe = hass.bus.async_listen("state_changed", state_changed)
         try:
             ready.set()
             await asyncio.wait_for(discovered.wait(), 5)

@@ -20,6 +20,7 @@ from .const import (
     IDLE_GAP_SEC,
     SEND_RETRY_MAX,
     SEND_RETRY_GAP,
+    CMD_DEADLINE_SEC,
     DeviceType,
 )
 from .models import DeviceKey, DeviceState
@@ -33,6 +34,9 @@ class _CmdItem:
     action: str
     kwargs: dict
     future: asyncio.Future = field(default_factory=lambda: asyncio.get_running_loop().create_future())
+    deadline: float = field(
+        default_factory=lambda: asyncio.get_running_loop().time() + CMD_DEADLINE_SEC
+    )
 
 
 class _PendingWaiter:
@@ -189,8 +193,10 @@ class KocomGateway:
         item = _CmdItem(key=key, action=action, kwargs=kwargs)
         await self._tx_queue.put(item)
         try:
-            res = await item.future   # 워커가 set_result(True/False)
-            return bool(res)
+            async with asyncio.timeout_at(item.deadline):
+                return bool(await item.future)
+        except TimeoutError:
+            return False
         except asyncio.CancelledError:
             # 정지 중이라면 False로 정리
             if not item.future.done():
@@ -307,84 +313,89 @@ class KocomGateway:
         try:
             while True:
                 item = await self._tx_queue.get()
-                if item is None:
-                    continue
                 self._current_item = item
-
-                # generate packet & expect predicate
                 try:
-                    packet, expect_predicate, timeout = self.controller.generate_command(
-                        item.key, item.action, **item.kwargs
-                    )
-                except Exception as e:
-                    LOGGER.exception("generate_command failed: %s", e)
+                    if item.future.done() or asyncio.get_running_loop().time() >= item.deadline:
+                        continue
+                    async with asyncio.timeout_at(item.deadline) as deadline:
+                        def abort(
+                            _future: asyncio.Future[bool],
+                            scope: asyncio.Timeout = deadline,
+                            current: _CmdItem = item,
+                        ) -> None:
+                            if self._current_item is current and not scope.expired():
+                                scope.reschedule(asyncio.get_running_loop().time())
+
+                        item.future.add_done_callback(abort)
+                        try:
+                            success = await self._send_command(item)
+                        finally:
+                            item.future.remove_done_callback(abort)
+                    if not item.future.done():
+                        item.future.set_result(success)
+                except TimeoutError:
+                    LOGGER.warning("Command '%s' exceeded its deadline or was cancelled.", item.action)
+                finally:
                     if not item.future.done():
                         item.future.set_result(False)
                     self._current_item = None
                     self._tx_queue.task_done()
-                    continue
-
-                # 재시도 루프
-                success = False
-                for attempt in range(1, SEND_RETRY_MAX + 1):
-                    # idle 대기 (최대 1초)
-                    LOGGER.debug("TX idle wait (max 1.0s) before '%s'...", item.action)
-                    t0 = asyncio.get_running_loop().time()
-                    while not self.is_idle():
-                        await asyncio.sleep(0.01)
-                        if asyncio.get_running_loop().time() - t0 > 1.0:
-                            LOGGER.debug("Idle wait timeout (%.2fs).", asyncio.get_running_loop().time() - t0)
-                            break
-
-                    # 연결 확인
-                    if not self.conn._is_connected():
-                        LOGGER.warning("Connection not ready. '%s' abort.", item.action)
-                        break
-
-                    waiter = _PendingWaiter(item.key, expect_predicate, asyncio.get_running_loop())
-                    self._pendings.append(waiter)
-                    # Register before sending so an immediate reply is not lost.
-                    try:
-                        await self.conn.send(packet)
-                    except Exception as e:
-                        if waiter in self._pendings:
-                            self._pendings.remove(waiter)
-                        waiter.future.cancel()
-                        LOGGER.warning("Send failed on attempt %d: %s", attempt, e)
-                        if attempt < SEND_RETRY_MAX:
-                            await asyncio.sleep(SEND_RETRY_GAP)
-                            continue
-                        else:
-                            break
-
-                    self._last_tx_monotonic = asyncio.get_running_loop().time()
-
-                    # 확인 대기
-                    try:
-                        _ = await asyncio.wait_for(waiter.future, timeout=timeout)
-                        LOGGER.debug("Command '%s' confirmed (attempt %d).", item.action, attempt)
-                        success = True
-                        break
-                    except asyncio.TimeoutError:
-                        if attempt < SEND_RETRY_MAX:
-                            LOGGER.warning(
-                                "No confirmation for '%s' (attempt %d/%d). Retrying in %.2fs...",
-                                item.action, attempt, SEND_RETRY_MAX, SEND_RETRY_GAP
-                            )
-                            await asyncio.sleep(SEND_RETRY_GAP)
-                        else:
-                            LOGGER.error("Command '%s' failed after %d attempts.", item.action, SEND_RETRY_MAX)
-                    finally:
-                        if waiter in self._pendings:
-                            self._pendings.remove(waiter)
-                        if not waiter.future.done():
-                            waiter.future.cancel()
-
-                if not item.future.done():
-                    item.future.set_result(success)
-
-                self._current_item = None
-                self._tx_queue.task_done()
         except asyncio.CancelledError:
             LOGGER.debug("Sender loop cancelled")
             raise
+
+    async def _send_command(self, item: _CmdItem) -> bool:
+        """Send and confirm one item within the sender's deadline scope."""
+        try:
+            packet, expect_predicate, timeout = self.controller.generate_command(
+                item.key, item.action, **item.kwargs
+            )
+        except Exception as e:
+            LOGGER.exception("generate_command failed: %s", e)
+            return False
+
+        for attempt in range(1, SEND_RETRY_MAX + 1):
+            LOGGER.debug("TX idle wait (max 1.0s) before '%s'...", item.action)
+            loop = asyncio.get_running_loop()
+            t0 = loop.time()
+            while not self.is_idle():
+                await asyncio.sleep(0.01)
+                if loop.time() - t0 > 1.0:
+                    LOGGER.debug("Idle wait timeout (%.2fs).", loop.time() - t0)
+                    break
+
+            if item.future.done() or loop.time() >= item.deadline:
+                return False
+            if not self.conn._is_connected():
+                LOGGER.warning("Connection not ready. '%s' abort.", item.action)
+                return False
+
+            waiter = _PendingWaiter(item.key, expect_predicate, loop)
+            self._pendings.append(waiter)
+            # Register before sending so an immediate reply is not lost.
+            try:
+                try:
+                    await self.conn.send(packet)
+                except (OSError, RuntimeError, ValueError) as e:
+                    LOGGER.warning("Send failed on attempt %d: %s", attempt, e)
+                else:
+                    self._last_tx_monotonic = loop.time()
+                    try:
+                        await asyncio.wait_for(waiter.future, timeout=timeout)
+                    except TimeoutError:
+                        LOGGER.warning(
+                            "No confirmation for '%s' (attempt %d/%d).",
+                            item.action, attempt, SEND_RETRY_MAX,
+                        )
+                    else:
+                        LOGGER.debug("Command '%s' confirmed (attempt %d).", item.action, attempt)
+                        return True
+            finally:
+                if waiter in self._pendings:
+                    self._pendings.remove(waiter)
+                if not waiter.future.done():
+                    waiter.future.cancel()
+            if attempt < SEND_RETRY_MAX:
+                await asyncio.sleep(SEND_RETRY_GAP)
+        LOGGER.error("Command '%s' failed after %d attempts.", item.action, SEND_RETRY_MAX)
+        return False

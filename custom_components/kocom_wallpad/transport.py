@@ -56,7 +56,7 @@ class AsyncConnection:
         needs a bounded failure so Home Assistant can raise ConfigEntryNotReady
         and use its own retry-with-backoff instead of blocking setup forever.
         Recovering an already-established connection that drops later is
-        handled separately by send()/recv() calling reconnect().
+        handled separately by the reader calling reconnect().
         """
         await self._connect_once()
 
@@ -96,10 +96,12 @@ class AsyncConnection:
             await self._writer.drain()
             self._touch()
             return len(data)
+        except asyncio.CancelledError:
+            self._connected = False
+            raise
         except (OSError, RuntimeError, ValueError) as e:
             LOGGER.warning("Send failed: %r", e)
             self._connected = False
-            await self.reconnect()
             raise
 
     async def recv(self, nbytes: int, timeout: float = 0.05) -> bytes:

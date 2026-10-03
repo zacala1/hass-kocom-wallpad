@@ -5,7 +5,7 @@ import asyncio
 
 import pytest
 from homeassistant.config_entries import ConfigEntryState
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -49,9 +49,12 @@ async def test_discovery_and_unload_when_wallpad_connected(hass: HomeAssistant) 
         assert await hass.config_entries.async_setup(entry.entry_id)
         gateway = hass.data[DOMAIN][entry.entry_id]
         changed = asyncio.Event()
-        unsubscribe = hass.bus.async_listen(
-            "state_changed", lambda event: changed.set()
-        )
+
+        @callback
+        def state_changed(_event: Event) -> None:
+            changed.set()
+
+        unsubscribe = hass.bus.async_listen("state_changed", state_changed)
         try:
             ready.set()
             await asyncio.wait_for(changed.wait(), 5)
