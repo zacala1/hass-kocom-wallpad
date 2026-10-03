@@ -2,20 +2,21 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.restore_state import RestoreEntity, RestoredExtraData
-from homeassistant.core import callback
-from homeassistant.exceptions import HomeAssistantError
-from homeassistant.const import Platform
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.components.light import LightEntityDescription
-from homeassistant.components.switch import SwitchEntityDescription
+from homeassistant.components.binary_sensor import BinarySensorEntityDescription
 from homeassistant.components.climate import ClimateEntityDescription
 from homeassistant.components.fan import FanEntityDescription
+from homeassistant.components.light import LightEntityDescription
 from homeassistant.components.sensor import SensorEntityDescription
-from homeassistant.components.binary_sensor import BinarySensorEntityDescription
+from homeassistant.components.switch import SwitchEntityDescription
+from homeassistant.const import Platform
+from homeassistant.core import callback
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.restore_state import RestoredExtraData, RestoreEntity
 
 from .const import DOMAIN, DeviceType, SubType
 
@@ -42,7 +43,7 @@ class KocomBaseEntity(RestoreEntity):
         super().__init__()
         self.gateway = gateway
         self._device = device
-        self._unsubs: list[callable] = []
+        self._unsubs: list[Callable[[], None]] = []
         self._attr_available = False
 
         self._attr_unique_id = f"{device.key.unique_id}:{self.gateway.host}"
@@ -98,19 +99,20 @@ class KocomBaseEntity(RestoreEntity):
         else:
             return f"KOCOM {self._device.key.device_type.name}"
 
-    async def async_added_to_hass(self):
+    async def async_added_to_hass(self) -> None:
         self._attr_available = self.gateway.is_device_available(self._device.key)
         sig = self.gateway.async_signal_device_updated(self._device.key.unique_id)
 
         @callback
-        def _handle_update(dev):
+        def _handle_update(dev: DeviceState) -> None:
             self._device = dev
             self._attr_available = self.gateway.is_device_available(dev.key)
             self.update_from_state()
         self._unsubs.append(async_dispatcher_connect(self.hass, sig, _handle_update))
 
         @callback
-        def _handle_connection(connected: bool) -> None:
+        # HA dispatcher callbacks receive this state as a positional argument.
+        def _handle_connection(connected: bool) -> None:  # noqa: FBT001
             if not connected:
                 self._attr_available = False
                 self.async_write_ha_state()

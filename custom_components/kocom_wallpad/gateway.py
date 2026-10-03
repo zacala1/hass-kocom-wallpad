@@ -5,35 +5,38 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Tuple, List, Callable
+from typing import Callable, Dict, List, Optional, Tuple
 
-from homeassistant.core import HomeAssistant, Event, callback
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.helpers import entity_registry as er, restore_state
 from homeassistant.const import Platform
+from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import restore_state
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import (
-    LOGGER,
-    DOMAIN,
-    RECV_POLL_SEC,
-    IDLE_GAP_SEC,
-    SEND_RETRY_MAX,
-    SEND_RETRY_GAP,
     CMD_DEADLINE_SEC,
+    DOMAIN,
+    IDLE_GAP_SEC,
+    LOGGER,
+    RECV_POLL_SEC,
+    SEND_RETRY_GAP,
+    SEND_RETRY_MAX,
     DeviceType,
 )
+from .controller import KocomController
 from .models import DeviceKey, DeviceState
 from .transport import AsyncConnection
-from .controller import KocomController
 
 
 @dataclass(slots=True)
 class _CmdItem:
     key: DeviceKey
     action: str
-    kwargs: dict
-    future: asyncio.Future = field(default_factory=lambda: asyncio.get_running_loop().create_future())
+    kwargs: dict[str, bool | int | float | str]
+    future: asyncio.Future[bool] = field(
+        default_factory=lambda: asyncio.get_running_loop().create_future()
+    )
     deadline: float = field(
         default_factory=lambda: asyncio.get_running_loop().time() + CMD_DEADLINE_SEC
     )
@@ -128,8 +131,8 @@ class KocomGateway:
         self.registry = EntityRegistry()
         self._tx_queue: asyncio.Queue[_CmdItem] = asyncio.Queue()
         self._current_item: _CmdItem | None = None
-        self._task_reader: asyncio.Task | None = None
-        self._task_sender: asyncio.Task | None = None
+        self._task_reader: asyncio.Task[None] | None = None
+        self._task_sender: asyncio.Task[None] | None = None
         self._pendings: list[_PendingWaiter] = []
         self._last_rx_monotonic: float = 0.0
         self._last_tx_monotonic: float = 0.0
@@ -247,13 +250,17 @@ class KocomGateway:
 
     @callback
     def async_signal_connection_state(self) -> str:
+        """Return the connection signal owned by this config entry."""
         return f"{DOMAIN}_connection_{self.entry.entry_id}"
 
     @callback
-    def _on_connection_state(self, connected: bool) -> None:
+    # The transport callback contract passes its boolean state positionally.
+    def _on_connection_state(self, connected: bool) -> None:  # noqa: FBT001
         if not connected:
             self._fresh_keys.clear()
-        async_dispatcher_send(self.hass, self.async_signal_connection_state(), connected)
+        async_dispatcher_send(
+            self.hass, self.async_signal_connection_state(), connected
+        )
 
     def is_device_available(self, key: DeviceKey) -> bool:
         """Require a fresh report for this device on the current connection."""
