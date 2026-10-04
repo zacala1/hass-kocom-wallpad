@@ -110,5 +110,5 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --frozen --group ha python -m pytest -p 
 HA 버전, 월패드 모델, 어댑터·연결 방식, 기대/실제 동작과 로그를 함께 적어주시면 큰 도움이 됩니다.
 
 원작자는 lunDreame이며 기존 코드의 권리 표기는 유지합니다.
-원본 저장소는 초기에 MIT License(Copyright (c) 2024 lunDreame)로 공개되었다가 이후 LICENSE 파일이 삭제되었고,
-이 저장소에는 현재 별도의 LICENSE 파일이 없습니다.
+이 저장소는 원본의 초기 공개본에 있던 [MIT License](LICENSE)(Copyright (c) 2024 lunDreame) 전문을 그대로 따릅니다.
+원본 저장소는 이후 이 파일을 삭제했습니다.
