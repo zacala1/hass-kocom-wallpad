@@ -28,7 +28,7 @@ jobs:
     needs: policy
     uses: ./.github/workflows/validate.yml
     with:
-      hacs-required: false
+      skip-hacs: true
     permissions:
       contents: read
 

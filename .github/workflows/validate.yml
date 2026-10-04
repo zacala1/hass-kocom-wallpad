@@ -8,10 +8,10 @@ on:
   workflow_dispatch:
   workflow_call:
     inputs:
-      hacs-required:
-        description: Whether HACS store validation must pass (it checks repository settings, not the code).
+      skip-hacs:
+        description: Skip HACS store validation (it checks repository settings, not the code).
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: read
@@ -122,7 +122,7 @@ jobs:
 
   validate-hacs:
     # A preview release is not gated on store metadata such as issues and topics.
-    if: ${{ inputs.hacs-required != false }}
+    if: ${{ !inputs.skip-hacs }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
