@@ -2,19 +2,28 @@
 
 from __future__ import annotations
 
-from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.helpers.restore_state import RestoreEntity, RestoredExtraData
-from homeassistant.core import callback
-from homeassistant.const import Platform
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.components.light import LightEntityDescription
-from homeassistant.components.switch import SwitchEntityDescription
+from collections.abc import Callable
+from typing import TYPE_CHECKING
+
+from homeassistant.components.binary_sensor import BinarySensorEntityDescription
 from homeassistant.components.climate import ClimateEntityDescription
 from homeassistant.components.fan import FanEntityDescription
+from homeassistant.components.light import LightEntityDescription
 from homeassistant.components.sensor import SensorEntityDescription
-from homeassistant.components.binary_sensor import BinarySensorEntityDescription
+from homeassistant.components.switch import SwitchEntityDescription
+from homeassistant.components.valve import ValveEntityDescription
+from homeassistant.const import Platform
+from homeassistant.core import callback
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.restore_state import RestoredExtraData, RestoreEntity
 
 from .const import DOMAIN, DeviceType, SubType
+
+if TYPE_CHECKING:
+    from .gateway import KocomGateway
+    from .models import DeviceState
 
 
 ENTITY_DESCRIPTION_MAP = {
@@ -23,19 +32,21 @@ ENTITY_DESCRIPTION_MAP = {
     Platform.CLIMATE: ClimateEntityDescription,
     Platform.FAN: FanEntityDescription,
     Platform.SENSOR: SensorEntityDescription,
-    Platform.BINARY_SENSOR: BinarySensorEntityDescription
+    Platform.BINARY_SENSOR: BinarySensorEntityDescription,
+    Platform.VALVE: ValveEntityDescription,
 }
 
 
 class KocomBaseEntity(RestoreEntity):
     """Base class for Kocom entities."""
 
-    def __init__(self, gateway, device) -> None:
+    def __init__(self, gateway: KocomGateway, device: DeviceState) -> None:
         """Initialize the base entity."""
         super().__init__()
         self.gateway = gateway
         self._device = device
-        self._unsubs: list[callable] = []
+        self._unsubs: list[Callable[[], None]] = []
+        self._attr_available = False
 
         self._attr_unique_id = f"{device.key.unique_id}:{self.gateway.host}"
         self.entity_description = ENTITY_DESCRIPTION_MAP[self._device.platform](
@@ -50,8 +61,18 @@ class KocomBaseEntity(RestoreEntity):
             manufacturer="KOCOM Co., Ltd",
             model="Smart Wallpad",
             name=f"{self.format_identifiers}",
-            via_device=(DOMAIN, str(self.gateway.host)),
         )
+
+    async def async_send_command(
+        self, action: str, **kwargs: bool | int | float | str
+    ) -> None:
+        """Raise an HA action error unless the gateway confirms the command."""
+        confirmed = await self.gateway.async_send_action(
+            self._device.key, action, **kwargs
+        )
+        if confirmed is not True:
+            message = "Kocom command was not confirmed"
+            raise HomeAssistantError(message)
         
     @property
     def format_key(self) -> str:
@@ -80,14 +101,32 @@ class KocomBaseEntity(RestoreEntity):
         else:
             return f"KOCOM {self._device.key.device_type.name}"
 
-    async def async_added_to_hass(self):
+    async def async_added_to_hass(self) -> None:
+        self._attr_available = self.gateway.is_device_available(self._device.key)
         sig = self.gateway.async_signal_device_updated(self._device.key.unique_id)
 
         @callback
-        def _handle_update(dev):
+        def _handle_update(dev: DeviceState) -> None:
             self._device = dev
+            self._attr_available = self.gateway.is_device_available(dev.key)
             self.update_from_state()
         self._unsubs.append(async_dispatcher_connect(self.hass, sig, _handle_update))
+
+        @callback
+        # HA dispatcher callbacks receive this state as a positional argument.
+        def _handle_connection(connected: bool) -> None:  # noqa: FBT001
+            # Losing the link always blocks; regaining it only helps devices that
+            # stay available without a fresh report (see is_device_available).
+            available = connected and self.gateway.is_device_available(
+                self._device.key
+            )
+            if available != self._attr_available:
+                self._attr_available = available
+                self.async_write_ha_state()
+
+        self._unsubs.append(async_dispatcher_connect(
+            self.hass, self.gateway.async_signal_connection_state(), _handle_connection
+        ))
 
     async def async_will_remove_from_hass(self) -> None:
         for unsub in self._unsubs:

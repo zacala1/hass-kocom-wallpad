@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional, List
+from typing import Any, List
 
 from homeassistant.components.fan import FanEntity, FanEntityFeature
 
@@ -58,31 +58,48 @@ class KocomFan(KocomBaseEntity, FanEntity):
         """Initialize the fan."""
         super().__init__(gateway, device)
         self._attr_supported_features = (
-            FanEntityFeature.SET_SPEED |
-            FanEntityFeature.TURN_OFF |
-            FanEntityFeature.TURN_ON
+            FanEntityFeature.SET_SPEED
+            | FanEntityFeature.TURN_OFF
+            | FanEntityFeature.TURN_ON
         )
         if device.attribute["feature_preset"]:
             self._attr_supported_features |= FanEntityFeature.PRESET_MODE
 
+    @callback
+    def update_from_state(self) -> None:
+        """Refresh learned preset capability flags with each device report."""
+        self._attr_supported_features = (
+            FanEntityFeature.SET_SPEED
+            | FanEntityFeature.TURN_OFF
+            | FanEntityFeature.TURN_ON
+        )
+        if self._device.attribute.get("feature_preset", False):
+            self._attr_supported_features |= FanEntityFeature.PRESET_MODE
+        super().update_from_state()
+
     @property
     def is_on(self) -> bool:
         return self._device.state["state"]
-    
+
     @property
     def speed_count(self) -> int:
         return len(self._device.attribute["speed_list"])
 
     @property
-    def percentage(self) -> int:
-        if not self._device.state["state"] or self._device.state["speed"] == 0:
+    def percentage(self) -> int | None:
+        speed = self._device.state["speed"]
+        if not self._device.state["state"] or speed == 0:
             return 0
-        return ordered_list_item_to_percentage(self._device.attribute["speed_list"], self._device.state["speed"])
-    
+        speed_list = self._device.attribute["speed_list"]
+        if speed not in speed_list:
+            # A speed code this integration does not know has no known percentage.
+            return None
+        return ordered_list_item_to_percentage(speed_list, speed)
+
     @property
     def preset_mode(self) -> str:
         return self._device.state["preset_mode"]
-    
+
     @property
     def preset_modes(self) -> List[str]:
         return self._device.attribute["preset_modes"]
@@ -90,22 +107,37 @@ class KocomFan(KocomBaseEntity, FanEntity):
     async def async_set_percentage(self, percentage: int) -> None:
         args = {"speed": 0}
         if percentage > 0:
-            args["speed"] = percentage_to_ordered_list_item(self._device.attribute["speed_list"], percentage)
-        await self.gateway.async_send_action(self._device.key, "set_percentage", **args)
+            args["speed"] = percentage_to_ordered_list_item(
+                self._device.attribute["speed_list"], percentage
+            )
+        await self.async_send_command("set_percentage", **args)
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         args = {"preset_mode": preset_mode}
-        await self.gateway.async_send_action(self._device.key, "set_preset", **args)
+        await self.async_send_command("set_preset", **args)
 
     async def async_turn_on(
         self,
-        speed: Optional[str] = None,
-        percentage: Optional[int] = None,
-        preset_mode: Optional[str] = None,
+        percentage: int | None = None,
+        preset_mode: str | None = None,
         **kwargs: Any,
     ) -> None:
-        await self.gateway.async_send_action(self._device.key, "turn_on")
+        if percentage == 0:
+            await self.async_set_percentage(0)
+            return
+        if percentage is not None and preset_mode is not None:
+            speed = percentage_to_ordered_list_item(
+                self._device.attribute["speed_list"], percentage
+            )
+            await self.async_send_command(
+                "set_percentage", speed=speed, preset_mode=preset_mode
+            )
+        elif preset_mode is not None:
+            await self.async_set_preset_mode(preset_mode)
+        elif percentage is not None:
+            await self.async_set_percentage(percentage)
+        else:
+            await self.async_send_command("turn_on")
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self.gateway.async_send_action(self._device.key, "turn_off")
-        
+        await self.async_send_command("turn_off")

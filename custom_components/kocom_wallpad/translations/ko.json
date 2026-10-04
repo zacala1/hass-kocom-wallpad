@@ -1,5 +1,13 @@
 {
     "title": "코콤 월패드",
+    "options": {
+        "step": {
+            "init": {
+                "description": "자동은 기존 장치 온도 간격을 유지합니다. 1은 난방 조작 간격만 1°C로 제한하며 에어컨에는 적용하지 않습니다. 이 옵션은 패킷 인코딩을 변경하거나 0.5°C 프로토콜 지원을 추가하지 않습니다.",
+                "data": {"thermostat_step": "난방 온도 간격 (auto: 기존 장치 값, 1: 1°C)"}
+            }
+        }
+    },
     "config": {
         "step": {
             "user": {
@@ -11,13 +19,26 @@
                 "data_description": {
                     "host": "시리얼 통신인 경우 호스트에 입력하고 포트는 무시하세요."
                 }
+            },
+            "reconfigure": {
+                "description": "장치의 주소와 포트를 변경합니다. 기존 엔티티는 유지됩니다.",
+                "data": {
+                    "host": "호스트",
+                    "port": "포트"
+                },
+                "data_description": {
+                    "host": "시리얼 통신인 경우 호스트에 입력하고 포트는 무시하세요."
+                }
             }
         },
         "abort": {
-            "single_instance_allowed": "단일 구성만 허용됩니다."
+            "single_instance_allowed": "단일 구성만 허용됩니다.",
+            "already_configured": "이미 구성된 장치입니다.",
+            "reconfigure_successful": "연결 설정을 변경했습니다."
         },
         "error": {
-            "cannot_connect": "연결할 수 없습니다."
+            "cannot_connect": "연결할 수 없습니다. 주소와 포트를 확인하고, 다른 프로그램이 같은 연결을 쓰고 있지 않은지 확인하세요.",
+            "invalid_host": "호스트 이름, IP 주소 또는 시리얼 장치 경로를 입력하세요."
         }
     },
     "entity": {
@@ -36,11 +57,13 @@
             "outlet": {
                 "name": "콘센트 {id}"
             },
-            "gasvalve": {
-                "name": "가스밸브 {id}"
-            },
             "elevator": {
                 "name": "엘리베이터 {id}"
+            }
+        },
+        "valve": {
+            "gasvalve": {
+                "name": "가스밸브 {id}"
             }
         },
         "climate": {
@@ -57,6 +80,9 @@
             }
         },
         "sensor": {
+            "last_received": {
+                "name": "마지막 수신"
+            },
             "elevator-direction": {
                 "name": "엘리베이터 방향 {id}"
             },
@@ -92,6 +118,9 @@
             }
         },
         "binary_sensor": {
+            "connection": {
+                "name": "연결"
+            },
             "motion": {
                 "name": "움직임 감지기(현관) {id}"
             },

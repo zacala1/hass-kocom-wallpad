@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import time
+from collections import deque
 from typing import List, Callable, Any, Tuple
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from homeassistant.const import Platform, UnitOfTemperature
 from homeassistant.components.sensor import SensorDeviceClass
@@ -22,6 +24,9 @@ from .const import (
     PACKET_SUFFIX,
     PACKET_LEN,
     CMD_CONFIRM_TIMEOUT,
+    DIAGNOSTIC_MAX_UNHANDLED,
+    DIAGNOSTIC_RECENT_FRAMES,
+    ECHO_WINDOW_SEC,
     DeviceType,
     SubType,
 )
@@ -32,7 +37,7 @@ from .models import (
     VENTILATION_PRESET_MAP,
     ELEVATOR_DIRECTION_MAP,
     DeviceKey,
-    DeviceState
+    DeviceState,
 )
 
 Predicate = Callable[[DeviceState], bool]
@@ -46,7 +51,11 @@ REV_VENT_PRESET_MAP = {v: k for k, v in VENTILATION_PRESET_MAP.items()}
 @dataclass(slots=True, frozen=True)
 class PacketFrame:
     """Packet frame."""
+
     raw: bytes
+    _peer: tuple[int, int] | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
 
     @property
     def packet_type(self) -> int:
@@ -74,19 +83,31 @@ class PacketFrame:
 
     @property
     def peer(self) -> tuple[int, int]:
+        """The device end of a frame; resolved once because every accessor asks."""
+        if self._peer is not None:
+            return self._peer
         if self.dest[0] == 0x01:
-            return (self.src[0], self.src[1])
+            peer = (self.src[0], self.src[1])
         elif self.src[0] == 0x01:
-            return (self.dest[0], self.dest[1])
+            peer = (self.dest[0], self.dest[1])
         else:
-            LOGGER.warning("Peer resolution failed: dest=%s, src=%s", self.dest.hex(), self.src.hex())
-            return (0, 0)
+            # Traffic between other bus participants is normal; not a warning.
+            LOGGER.debug(
+                "Frame without wallpad address: dest=%s, src=%s",
+                self.dest.hex(),
+                self.src.hex(),
+            )
+            peer = (0, 0)
+        object.__setattr__(self, "_peer", peer)
+        return peer
 
     @property
     def dev_type(self) -> DeviceType:
         dev_type = DEVICE_TYPE_MAP.get(self.peer[0], None)
         if dev_type is None:
-            LOGGER.debug("Unknown device type code=%s, raw=%s", hex(self.peer[0]), self.raw.hex())
+            LOGGER.debug(
+                "Unknown device type code=%s, raw=%s", hex(self.peer[0]), self.raw.hex()
+            )
             dev_type = DeviceType.UNKNOWN
         return dev_type
 
@@ -103,6 +124,43 @@ class KocomController:
         self.gateway = gateway
         self._rx_buf = bytearray()
         self._device_storage: dict[str, Any] = {}
+        self._stats: dict[str, int] = {
+            "frames": 0,
+            "echoed": 0,
+            "bad_checksum": 0,
+            "handler_errors": 0,
+            "unhandled": 0,
+            "unhandled_overflow": 0,
+        }
+        self._recent_frames: deque[str] = deque(maxlen=DIAGNOSTIC_RECENT_FRAMES)
+        self._unhandled: dict[str, dict[str, Any]] = {}
+        self._sent: deque[tuple[bytes, float]] = deque(maxlen=8)
+
+    def merge_device_storage(self, saved: dict[str, Any]) -> None:
+        """Merge learned values restored from one entity into the live storage.
+
+        Every entity saves a snapshot of the shared storage, so restoring them one
+        by one must not let the last snapshot replace what the others contributed:
+        lists are united, flags are or-ed and other values take the latest snapshot.
+        """
+        for name, value in saved.items():
+            current = self._device_storage.get(name)
+            if isinstance(current, list) and isinstance(value, list):
+                self._device_storage[name] = [
+                    *current,
+                    *(item for item in value if item not in current),
+                ]
+            elif isinstance(current, bool) and isinstance(value, bool):
+                self._device_storage[name] = current or value
+            else:
+                self._device_storage[name] = list(value) if isinstance(value, list) else value
+
+    def _is_known_or_restoring(self, key: DeviceKey) -> bool:
+        """Whether a zero reading must still be published for this sensor."""
+        registry = getattr(self.gateway, "registry", None)
+        return (
+            registry is not None and registry.get(key) is not None
+        ) or getattr(self.gateway, "_force_register_uid", None) == key.unique_id
 
     @staticmethod
     def _checksum(buf: bytes) -> int:
@@ -114,7 +172,71 @@ class KocomController:
         self._rx_buf.extend(chunk)
         for pkt in self._split_buf():
             LOGGER.debug("Packet received: raw=%s", pkt.hex())
-            self._dispatch_packet(pkt)
+            self._stats["frames"] += 1
+            self._recent_frames.append(pkt.hex())
+            if self._is_own_echo(pkt):
+                # Some adapters hear their own transmission. It carries the state we
+                # asked for, so treating it as a report would confirm any command.
+                self._stats["echoed"] += 1
+                LOGGER.debug("Ignoring the echo of our own frame: raw=%s", pkt.hex())
+                continue
+            try:
+                self._dispatch_packet(pkt)
+            except Exception:
+                # A malformed or unexpected frame must not stop the receive loop.
+                self._stats["handler_errors"] += 1
+                LOGGER.exception("Failed to handle packet: raw=%s", pkt.hex())
+
+    def note_transmitted(self, packet: bytes) -> None:
+        """Remember a frame we are about to send so its echo can be recognised."""
+        self._sent.append((bytes(packet), time.monotonic()))
+
+    def _is_own_echo(self, packet: bytes) -> bool:
+        """Whether this frame is, byte for byte, one we sent a moment ago.
+
+        A device reply differs from the command (the addresses are swapped), so only
+        an echo can match. Each transmission explains at most one received frame.
+        """
+        now = time.monotonic()
+        while self._sent and now - self._sent[0][1] > ECHO_WINDOW_SEC:
+            self._sent.popleft()
+        for index, (sent, _at) in enumerate(self._sent):
+            if sent == packet:
+                del self._sent[index]
+                return True
+        return False
+
+    def diagnostics_snapshot(self) -> dict[str, Any]:
+        """Counters, recent frames and unhandled frame kinds for diagnostics."""
+        return {
+            "stats": dict(self._stats),
+            "recent_frames": list(self._recent_frames),
+            "unhandled_frames": [
+                {"id": name, **entry} for name, entry in self._unhandled.items()
+            ],
+            "device_storage": dict(self._device_storage),
+        }
+
+    def _record_unhandled(self, frame: PacketFrame, dev_type: DeviceType) -> None:
+        """Remember a frame this integration does not understand, bounded in size."""
+        self._stats["unhandled"] += 1
+        name = f"{frame.peer[0]:02x}:{frame.command:02x}"
+        entry = self._unhandled.get(name)
+        if entry is None:
+            if len(self._unhandled) >= DIAGNOSTIC_MAX_UNHANDLED:
+                self._stats["unhandled_overflow"] += 1
+                return
+            entry = {
+                "device_type": dev_type.name.lower(),
+                "dest": frame.dest.hex(),
+                "src": frame.src.hex(),
+                "command": f"{frame.command:02x}",
+                "count": 0,
+                "first_frame": frame.raw.hex(),
+            }
+            self._unhandled[name] = entry
+        entry["count"] += 1
+        entry["last_frame"] = frame.raw.hex()
 
     def _split_buf(self) -> List[bytes]:
         packets: List[bytes] = []
@@ -122,8 +244,10 @@ class KocomController:
         while True:
             start = buf.find(PACKET_PREFIX)
             if start < 0:
-                # 프리픽스 이전의 쓰레기 데이터 제거
-                buf.clear()
+                if buf and buf[-1] == PACKET_PREFIX[0]:
+                    del buf[:-1]
+                else:
+                    buf.clear()
                 break
             if start > 0:
                 del buf[:start]
@@ -143,36 +267,46 @@ class KocomController:
     def _dispatch_packet(self, packet: bytes) -> None:
         frame = PacketFrame(packet)
         if self._checksum(packet[2:18]) != frame.checksum:
+            self._stats["bad_checksum"] += 1
             LOGGER.debug("Packet checksum is invalid. raw=%s", frame.raw.hex())
             return
 
+        dev_type = frame.dev_type
+
         dev_state = None
-        if frame.dev_type == DeviceType.LIGHT:
+        if dev_type == DeviceType.LIGHT:
             if frame.dev_room == 0xFF:
                 dev_state = self._handle_cutoff_switch(frame)
             else:
                 dev_state = self._handle_switch(frame)
-        elif frame.dev_type == DeviceType.OUTLET:
+        elif dev_type == DeviceType.OUTLET:
             dev_state = self._handle_switch(frame)
-        elif frame.dev_type == DeviceType.THERMOSTAT:
+        elif dev_type == DeviceType.THERMOSTAT:
             dev_state = self._handle_thermostat(frame)
-        elif frame.dev_type == DeviceType.AIRCONDITIONER:
+        elif dev_type == DeviceType.AIRCONDITIONER:
             dev_state = self._handle_airconditioner(frame)
-        elif frame.dev_type == DeviceType.VENTILATION:
+        elif dev_type == DeviceType.VENTILATION:
             dev_state = self._handle_ventilation(frame)
-        elif frame.dev_type == DeviceType.GASVALVE:
+        elif dev_type == DeviceType.GASVALVE:
             dev_state = self._handle_gasvalve(frame)
-        elif frame.dev_type == DeviceType.ELEVATOR:
+        elif dev_type == DeviceType.ELEVATOR:
             dev_state = self._handle_elevator(frame)
-        elif frame.dev_type == DeviceType.MOTION:
+        elif dev_type == DeviceType.MOTION:
             dev_state = self._handle_motion(frame)
-        elif frame.dev_type == DeviceType.AIRQUALITY:
+        elif dev_type == DeviceType.AIRQUALITY:
             dev_state = self._handle_airquality(frame)
         else:
-            LOGGER.debug("Unhandled device type: %s (raw=%s)", frame.dev_type.name, frame.raw.hex())
+            LOGGER.debug(
+                "Unhandled device type: %s (raw=%s)",
+                dev_type.name,
+                frame.raw.hex(),
+            )
+            self._record_unhandled(frame, dev_type)
             return
 
         if not dev_state:
+            # A known device type with a command this integration does not decode.
+            self._record_unhandled(frame, dev_type)
             return
 
         if isinstance(dev_state, list):
@@ -182,17 +316,20 @@ class KocomController:
         else:
             dev_state._packet = packet
             self.gateway.on_device_state(dev_state)
-            
+
     def _handle_cutoff_switch(self, frame: PacketFrame) -> DeviceState:
         if frame.command in (0x65, 0x66):
+            # Own device type: with LIGHT this key equals room 0 light 0.
             key = DeviceKey(
-                device_type=frame.dev_type,
+                device_type=DeviceType.LIGHTCUTOFF,
                 room_index=0,
                 device_index=0,
                 sub_type=SubType.NONE,
             )
             state = frame.command == 0x65
-            dev = DeviceState(key=key, platform=Platform.LIGHT, attribute={}, state=state)
+            dev = DeviceState(
+                key=key, platform=Platform.LIGHT, attribute={}, state=state
+            )
             return dev
 
     def _handle_switch(self, frame: PacketFrame) -> List[DeviceState]:
@@ -205,12 +342,18 @@ class KocomController:
                     device_index=idx,
                     sub_type=SubType.NONE,
                 )
-                platform = Platform.LIGHT if frame.dev_type == DeviceType.LIGHT else Platform.SWITCH      
+                platform = (
+                    Platform.LIGHT
+                    if frame.dev_type == DeviceType.LIGHT
+                    else Platform.SWITCH
+                )
                 attribute = {}
                 if platform == Platform.SWITCH:
                     attribute = {"device_class": SwitchDeviceClass.OUTLET}
-                state = frame.payload[idx] == 0xFF        
-                dev = DeviceState(key=key, platform=platform, attribute=attribute, state=state)
+                state = frame.payload[idx] == 0xFF
+                dev = DeviceState(
+                    key=key, platform=platform, attribute=attribute, state=state
+                )
                 if state:
                     dev._is_register = True
                 else:
@@ -228,7 +371,9 @@ class KocomController:
                 sub_type=SubType.NONE,
             )
             havc_mode = HVACMode.HEAT if frame.payload[0] >> 4 == 0x01 else HVACMode.OFF
-            preset_mode = PRESET_AWAY if frame.payload[1] & 0x0F == 0x01 else PRESET_NONE
+            preset_mode = (
+                PRESET_AWAY if frame.payload[1] & 0x0F == 0x01 else PRESET_NONE
+            )
             target_temp = float(frame.payload[2])
             current_temp = float(frame.payload[4])
             hot_temp = frame.payload[3]
@@ -239,25 +384,42 @@ class KocomController:
                 "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
                 "feature_preset": True,
                 "preset_modes": [PRESET_AWAY, PRESET_NONE],
-                "temp_step": self._device_storage.get(f"{key.unique_id}_thermo_step", 1.0),
+                "temp_step": self._device_storage.get(
+                    f"{key.unique_id}_thermo_step", 1.0
+                ),
             }
             state = {
                 "hvac_mode": havc_mode,
                 "preset_mode": preset_mode,
-                "target_temp": self._device_storage.get(f"{key.unique_id}_thermo_target", target_temp),
-                "current_temp": self._device_storage.get(f"{key.unique_id}_thermo_current", current_temp),
+                "target_temp": target_temp
+                or self._device_storage.get(
+                    f"{key.unique_id}_thermo_target", target_temp
+                ),
+                "current_temp": current_temp
+                or self._device_storage.get(
+                    f"{key.unique_id}_thermo_current", current_temp
+                ),
             }
-            if target_temp % 1 == 0.5 and self._device_storage.get(f"{key.unique_id}_thermo_step") != 0.5:
+            if (
+                target_temp % 1 == 0.5
+                and self._device_storage.get(f"{key.unique_id}_thermo_step") != 0.5
+            ):
                 LOGGER.debug("0.5°C step detected, heating supports 0.5 increments.")
                 self._device_storage[f"{key.unique_id}_thermo_step"] = 0.5
             if target_temp != 0 and current_temp != 0:
-                if havc_mode == HVACMode.HEAT and self._device_storage.get(f"{key.unique_id}_thermo_target") != target_temp:
+                if (
+                    havc_mode == HVACMode.HEAT
+                    and self._device_storage.get(f"{key.unique_id}_thermo_target")
+                    != target_temp
+                ):
                     LOGGER.debug(f"User target temperature update: {target_temp}")
                     self._device_storage[f"{key.unique_id}_thermo_target"] = target_temp
                 self._device_storage[f"{key.unique_id}_thermo_current"] = current_temp
-            dev = DeviceState(key=key, platform=Platform.CLIMATE, attribute=attribute, state=state)
+            dev = DeviceState(
+                key=key, platform=Platform.CLIMATE, attribute=attribute, state=state
+            )
             states.append(dev)
-            
+
             key = DeviceKey(
                 device_type=frame.dev_type,
                 room_index=frame.dev_room,
@@ -266,12 +428,17 @@ class KocomController:
             )
             attribute = {
                 "device_class": SensorDeviceClass.TEMPERATURE,
-                "unit_of_measurement": UnitOfTemperature.CELSIUS
+                "unit_of_measurement": UnitOfTemperature.CELSIUS,
             }
-            if hot_temp > 0:
-                dev = DeviceState(key=key, platform=Platform.SENSOR, attribute=attribute, state=hot_temp)
+            if hot_temp > 0 or self._is_known_or_restoring(key):
+                dev = DeviceState(
+                    key=key,
+                    platform=Platform.SENSOR,
+                    attribute=attribute,
+                    state=hot_temp,
+                )
                 states.append(dev)
-            
+
             key = DeviceKey(
                 device_type=frame.dev_type,
                 room_index=frame.dev_room,
@@ -280,12 +447,17 @@ class KocomController:
             )
             attribute = {
                 "device_class": SensorDeviceClass.TEMPERATURE,
-                "unit_of_measurement": UnitOfTemperature.CELSIUS
+                "unit_of_measurement": UnitOfTemperature.CELSIUS,
             }
-            if heat_temp > 0:
-                dev = DeviceState(key=key, platform=Platform.SENSOR, attribute=attribute, state=heat_temp)
+            if heat_temp > 0 or self._is_known_or_restoring(key):
+                dev = DeviceState(
+                    key=key,
+                    platform=Platform.SENSOR,
+                    attribute=attribute,
+                    state=heat_temp,
+                )
                 states.append(dev)
-            
+
             key = DeviceKey(
                 device_type=frame.dev_type,
                 room_index=frame.dev_room,
@@ -293,16 +465,19 @@ class KocomController:
                 sub_type=SubType.ERRCODE,
             )
             attribute = {
-                "extra_state": {
-                    "error_code": f"{error_code:02}"
-                },
-                "device_class": BinarySensorDeviceClass.PROBLEM
+                "extra_state": {"error_code": f"{error_code:02}"},
+                "device_class": BinarySensorDeviceClass.PROBLEM,
             }
             state = error_code != 0x00
-            dev = DeviceState(key=key, platform=Platform.BINARY_SENSOR, attribute=attribute, state=state)
+            dev = DeviceState(
+                key=key,
+                platform=Platform.BINARY_SENSOR,
+                attribute=attribute,
+                state=state,
+            )
             states.append(dev)
             return states
-        
+
     def _handle_airconditioner(self, frame: PacketFrame) -> DeviceState:
         if frame.command == 0x00:
             key = DeviceKey(
@@ -312,7 +487,7 @@ class KocomController:
                 sub_type=SubType.NONE,
             )
             if frame.payload[0] == 0x10:
-                havc_mode = AIRCONDITIONER_HVAC_MAP.get(frame.payload[1], HVACMode.OFF) 
+                havc_mode = AIRCONDITIONER_HVAC_MAP.get(frame.payload[1], HVACMode.OFF)
             else:
                 havc_mode = HVACMode.OFF
             fan_mode = AIRCONDITIONER_FAN_MAP.get(frame.payload[2], FAN_LOW)
@@ -331,9 +506,11 @@ class KocomController:
                 "current_temp": current_temp,
                 "target_temp": target_temp,
             }
-            dev = DeviceState(key=key, platform=Platform.CLIMATE, attribute=attribute, state=state)
+            dev = DeviceState(
+                key=key, platform=Platform.CLIMATE, attribute=attribute, state=state
+            )
             return dev
-    
+
     def _handle_ventilation(self, frame: PacketFrame) -> List[DeviceState]:
         states: List[DeviceState] = []
         if frame.command == 0x00:
@@ -349,27 +526,30 @@ class KocomController:
             co2_value = (frame.payload[4] * 100) + frame.payload[5]
             error_code = frame.payload[6]
 
+            learned_modes = list(self._device_storage.get("ventil_modes") or [])
+            if preset_mode not in ("unknown", "ventilation"):
+                if not learned_modes:
+                    learned_modes.append("ventilation")
+                if preset_mode not in learned_modes:
+                    learned_modes.append(preset_mode)
+                self._device_storage["ventil_feature"] = True
+                self._device_storage["ventil_modes"] = learned_modes
+
             attribute = {
                 "feature_preset": self._device_storage.get("ventil_feature", False),
-                "preset_modes": self._device_storage.get("ventil_modes", []),
-                "speed_list": [0x40, 0x80, 0xC0]
+                "preset_modes": list(learned_modes),
+                "speed_list": [0x40, 0x80, 0xC0],
             }
             state = {
                 "state": state,
                 "preset_mode": preset_mode,
                 "speed": speed,
             }
-            if preset_mode != "unknown" and preset_mode != "ventilation":
-                if self._device_storage.get("ventil_modes") is None:
-                    LOGGER.debug("New ventilation preset detected (excluding default).")
-                    self._device_storage["ventil_feature"] = True
-                    self._device_storage["ventil_modes"] = ["ventilation"]
-                if preset_mode not in self._device_storage["ventil_modes"]:
-                    LOGGER.debug(f"Added presets: {preset_mode}")
-                    self._device_storage["ventil_modes"].append(preset_mode)
-            dev = DeviceState(key=key, platform=Platform.FAN, attribute=attribute, state=state)
+            dev = DeviceState(
+                key=key, platform=Platform.FAN, attribute=attribute, state=state
+            )
             states.append(dev)
-            
+
             key = DeviceKey(
                 device_type=frame.dev_type,
                 room_index=frame.dev_room,
@@ -378,12 +558,17 @@ class KocomController:
             )
             attribute = {
                 "device_class": SensorDeviceClass.CO2,
-                "unit_of_measurement": "ppm"
+                "unit_of_measurement": "ppm",
             }
-            if co2_value > 0:
-                dev = DeviceState(key=key, platform=Platform.SENSOR, attribute=attribute, state=co2_value)
+            if co2_value > 0 or self._is_known_or_restoring(key):
+                dev = DeviceState(
+                    key=key,
+                    platform=Platform.SENSOR,
+                    attribute=attribute,
+                    state=co2_value,
+                )
                 states.append(dev)
-            
+
             key = DeviceKey(
                 device_type=frame.dev_type,
                 room_index=frame.dev_room,
@@ -391,13 +576,16 @@ class KocomController:
                 sub_type=SubType.ERRCODE,
             )
             attribute = {
-                "extra_state": {
-                    "error_code": f"{error_code:02}"
-                },
-                "device_class": BinarySensorDeviceClass.PROBLEM
+                "extra_state": {"error_code": f"{error_code:02}"},
+                "device_class": BinarySensorDeviceClass.PROBLEM,
             }
             state = error_code != 0x00
-            dev = DeviceState(key=key, platform=Platform.BINARY_SENSOR, attribute=attribute, state=state)
+            dev = DeviceState(
+                key=key,
+                platform=Platform.BINARY_SENSOR,
+                attribute=attribute,
+                state=state,
+            )
             states.append(dev)
             return states
 
@@ -410,10 +598,12 @@ class KocomController:
                 sub_type=SubType.NONE,
             )
             state = frame.command == 0x01
-            dev = DeviceState(key=key, platform=Platform.SWITCH, attribute={}, state=state)
+            dev = DeviceState(
+                key=key, platform=Platform.VALVE, attribute={}, state=state
+            )
             return dev
 
-    def _handle_elevator(self, frame: PacketFrame) -> List[DeviceState]:    
+    def _handle_elevator(self, frame: PacketFrame) -> List[DeviceState]:
         states: List[DeviceState] = []
         key = DeviceKey(
             device_type=frame.dev_type,
@@ -442,7 +632,7 @@ class KocomController:
             state = ELEVATOR_DIRECTION_MAP.get(frame.payload[0], "unknown")
         dev = DeviceState(key=key, platform=Platform.SENSOR, attribute={}, state=state)
         states.append(dev)
-        
+
         key = DeviceKey(
             device_type=frame.dev_type,
             room_index=frame.dev_room,
@@ -463,10 +653,12 @@ class KocomController:
         if state != "" and state != "unknown":
             self._device_storage["available_floor"] = True
         if self._device_storage.get("available_floor", False):
-            dev = DeviceState(key=key, platform=Platform.SENSOR, attribute={}, state=state)
+            dev = DeviceState(
+                key=key, platform=Platform.SENSOR, attribute={}, state=state
+            )
             states.append(dev)
         return states
-    
+
     def _handle_motion(self, frame: PacketFrame) -> DeviceState:
         if frame.command in (0x00, 0x04):
             key = DeviceKey(
@@ -475,22 +667,37 @@ class KocomController:
                 device_index=0,
                 sub_type=SubType.NONE,
             )
-            attribute = {
-                "device_class": BinarySensorDeviceClass.MOTION
-            }
+            attribute = {"device_class": BinarySensorDeviceClass.MOTION}
             state = frame.command == 0x04
-            dev = DeviceState(key=key, platform=Platform.BINARY_SENSOR, attribute=attribute, state=state)
+            dev = DeviceState(
+                key=key,
+                platform=Platform.BINARY_SENSOR,
+                attribute=attribute,
+                state=state,
+            )
             return dev
-        
+
     def _handle_airquality(self, frame: PacketFrame) -> List[DeviceState]:
         states: List[DeviceState] = []
         if frame.command in (0x00, 0x3A):
             data_mapping = {
                 SubType.PM10: (SensorDeviceClass.PM10, "µg/m³", frame.payload[0]),
                 SubType.PM25: (SensorDeviceClass.PM25, "µg/m³", frame.payload[1]),
-                SubType.CO2: (SensorDeviceClass.CO2, "ppm", int.from_bytes(frame.payload[2:4], 'big')),
-                SubType.VOC: (SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS, "µg/m³", int.from_bytes(frame.payload[4:6], 'big')),
-                SubType.TEMP: (SensorDeviceClass.TEMPERATURE, UnitOfTemperature.CELSIUS, frame.payload[6]),
+                SubType.CO2: (
+                    SensorDeviceClass.CO2,
+                    "ppm",
+                    int.from_bytes(frame.payload[2:4], "big"),
+                ),
+                SubType.VOC: (
+                    SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS,
+                    "µg/m³",
+                    int.from_bytes(frame.payload[4:6], "big"),
+                ),
+                SubType.TEMP: (
+                    SensorDeviceClass.TEMPERATURE,
+                    UnitOfTemperature.CELSIUS,
+                    frame.payload[6],
+                ),
                 SubType.HUMIDITY: (SensorDeviceClass.HUMIDITY, "%", frame.payload[7]),
             }
             for key, value in data_mapping.items():
@@ -503,24 +710,35 @@ class KocomController:
                 )
                 attribute = {
                     "device_class": device_class,
-                    "unit_of_measurement": native_unit
+                    "unit_of_measurement": native_unit,
                 }
-                if state > 0:
-                    dev = DeviceState(key=key, platform=Platform.SENSOR, attribute=attribute, state=state)
+                if state > 0 or self._is_known_or_restoring(key):
+                    dev = DeviceState(
+                        key=key,
+                        platform=Platform.SENSOR,
+                        attribute=attribute,
+                        state=state,
+                    )
                     states.append(dev)
             return states
-    
+
     # TODO: 명령 상태 비교 로직 통합 (gateway.py)
     def _match_key_and(self, key: DeviceKey, cond: Predicate) -> Predicate:
         def _inner(dev: DeviceState) -> bool:
             if dev.key.key != key.key:
                 return False
             return cond(dev)
+
         return _inner
 
-    def _expect_for_switch_like(self, key: DeviceKey, action: str, **kwargs: Any) -> Tuple[Predicate, float]:
-        def _on(dev: DeviceState) -> bool:  return bool(dev.state) is True
-        def _off(dev: DeviceState) -> bool: return bool(dev.state) is False
+    def _expect_for_switch_like(
+        self, key: DeviceKey, action: str, **kwargs: Any
+    ) -> Tuple[Predicate, float]:
+        def _on(dev: DeviceState) -> bool:
+            return bool(dev.state) is True
+
+        def _off(dev: DeviceState) -> bool:
+            return bool(dev.state) is False
 
         if action == "turn_on":
             return self._match_key_and(key, _on), CMD_CONFIRM_TIMEOUT
@@ -528,9 +746,12 @@ class KocomController:
             return self._match_key_and(key, _off), CMD_CONFIRM_TIMEOUT
         return self._match_key_and(key, lambda _d: False), CMD_CONFIRM_TIMEOUT
 
-    def _expect_for_ventilation(self, key: DeviceKey, action: str, **kwargs: Any) -> Tuple[Predicate, float]:
+    def _expect_for_ventilation(
+        self, key: DeviceKey, action: str, **kwargs: Any
+    ) -> Tuple[Predicate, float]:
         def is_on(d: DeviceState) -> bool:
             return isinstance(d.state, dict) and d.state.get("state") is True
+
         def is_off(d: DeviceState) -> bool:
             return isinstance(d.state, dict) and d.state.get("state") is False
 
@@ -541,60 +762,128 @@ class KocomController:
 
         if action == "set_preset":
             pm = kwargs["preset_mode"]
-            return self._match_key_and(key, lambda d: isinstance(d.state, dict) and d.state.get("preset_mode") == pm), CMD_CONFIRM_TIMEOUT
+            return self._match_key_and(
+                key,
+                lambda d: isinstance(d.state, dict)
+                and d.state.get("preset_mode") == pm,
+            ), CMD_CONFIRM_TIMEOUT
         if action == "set_percentage":
             speed = kwargs["speed"]
-            return self._match_key_and(key, lambda d: isinstance(d.state, dict) and d.state.get("speed") == speed), CMD_CONFIRM_TIMEOUT
+            preset_mode = kwargs.get("preset_mode")
+            return self._match_key_and(
+                key,
+                lambda d: isinstance(d.state, dict)
+                and d.state.get("speed") == speed
+                and (preset_mode is None or d.state.get("preset_mode") == preset_mode),
+            ), CMD_CONFIRM_TIMEOUT
 
         return self._match_key_and(key, lambda _d: False), CMD_CONFIRM_TIMEOUT
 
-    def _expect_for_gasvalve(self, key: DeviceKey, action: str, **kwargs: Any) -> Tuple[Predicate, float]:
+    def _expect_for_gasvalve(
+        self, key: DeviceKey, action: str, **kwargs: Any
+    ) -> Tuple[Predicate, float]:
         # 밸브는 동작이 느릴 수 있으니 기본 타임아웃 상향
         base_timeout = max(CMD_CONFIRM_TIMEOUT, 1.5)
         if action == "turn_on":
-            return True, base_timeout
+            return self._match_key_and(
+                key, lambda d: bool(d.state) is True
+            ), base_timeout
         if action == "turn_off":
-            return self._match_key_and(key, lambda d: bool(d.state) is False), base_timeout
+            return self._match_key_and(
+                key, lambda d: bool(d.state) is False
+            ), base_timeout
         return self._match_key_and(key, lambda _d: False), base_timeout
 
-    def _expect_for_thermostat(self, key: DeviceKey, action: str, **kwargs: Any) -> Tuple[Predicate, float]:
+    def _expect_for_thermostat(
+        self, key: DeviceKey, action: str, **kwargs: Any
+    ) -> Tuple[Predicate, float]:
         if action == "set_hvac":
             hm = kwargs["hvac_mode"]
-            return self._match_key_and(key, lambda d: isinstance(d.state, dict) and d.state.get("hvac_mode") == hm), CMD_CONFIRM_TIMEOUT
+            return self._match_key_and(
+                key,
+                lambda d: isinstance(d.state, dict) and d.state.get("hvac_mode") == hm,
+            ), CMD_CONFIRM_TIMEOUT
         if action == "set_preset":
             pm = kwargs["preset_mode"]
-            return self._match_key_and(key, lambda d: isinstance(d.state, dict) and d.state.get("preset_mode") == pm), CMD_CONFIRM_TIMEOUT
+            return self._match_key_and(
+                key,
+                lambda d: isinstance(d.state, dict)
+                and d.state.get("preset_mode") == pm,
+            ), CMD_CONFIRM_TIMEOUT
         if action == "set_temperature":
             tt = kwargs["target_temp"]
-            return self._match_key_and(key, lambda d: isinstance(d.state, dict) and d.state.get("target_temp") == tt), max(CMD_CONFIRM_TIMEOUT, 1.5)
+            hm = kwargs.get("hvac_mode")
+            return self._match_key_and(
+                key,
+                lambda d: isinstance(d.state, dict)
+                and d.state.get("target_temp") == tt
+                and (hm is None or d.state.get("hvac_mode") == hm),
+            ), max(CMD_CONFIRM_TIMEOUT, 1.5)
         if action == "turn_on":
-            return self._match_key_and(key, lambda d: isinstance(d.state, dict) and d.state.get("state") is True), CMD_CONFIRM_TIMEOUT
+            return self._match_key_and(
+                key,
+                lambda d: isinstance(d.state, dict) and d.state.get("state") is True,
+            ), CMD_CONFIRM_TIMEOUT
         if action == "turn_off":
-            return self._match_key_and(key, lambda d: isinstance(d.state, dict) and d.state.get("state") is False), CMD_CONFIRM_TIMEOUT
-        return self._match_key_and(key, lambda _d: False), CMD_CONFIRM_TIMEOUT
-    
-    def _expect_for_airconditioner(self, key: DeviceKey, action: str, **kwargs: Any) -> Tuple[Predicate, float]:
-        if action == "set_hvac":
-            hm = kwargs["hvac_mode"]
-            return self._match_key_and(key, lambda d: isinstance(d.state, dict) and d.state.get("hvac_mode") == hm), CMD_CONFIRM_TIMEOUT
-        if action == "set_fan":
-            fm = kwargs["fan_mode"]
-            return self._match_key_and(key, lambda d: isinstance(d.state, dict) and d.state.get("fan_mode") == fm), CMD_CONFIRM_TIMEOUT
-        if action == "set_preset":
-            pm = kwargs["preset_mode"]
-            return self._match_key_and(key, lambda d: isinstance(d.state, dict) and d.state.get("preset_mode") == pm), CMD_CONFIRM_TIMEOUT
-        if action == "set_temperature":
-            tt = kwargs["target_temp"]
-            return self._match_key_and(key, lambda d: isinstance(d.state, dict) and d.state.get("target_temp") == tt), max(CMD_CONFIRM_TIMEOUT, 1.5)
-        if action == "turn_on":
-            return self._match_key_and(key, lambda d: isinstance(d.state, dict) and d.state.get("state") is True), CMD_CONFIRM_TIMEOUT
-        if action == "turn_off":
-            return self._match_key_and(key, lambda d: isinstance(d.state, dict) and d.state.get("state") is False), CMD_CONFIRM_TIMEOUT
+            return self._match_key_and(
+                key,
+                lambda d: isinstance(d.state, dict) and d.state.get("state") is False,
+            ), CMD_CONFIRM_TIMEOUT
         return self._match_key_and(key, lambda _d: False), CMD_CONFIRM_TIMEOUT
 
-    def build_expectation(self, key: DeviceKey, action: str, **kwargs: Any) -> Tuple[Predicate, float]:
+    def _expect_for_airconditioner(
+        self, key: DeviceKey, action: str, **kwargs: Any
+    ) -> Tuple[Predicate, float]:
+        if action == "set_hvac":
+            hm = kwargs["hvac_mode"]
+            return self._match_key_and(
+                key,
+                lambda d: isinstance(d.state, dict) and d.state.get("hvac_mode") == hm,
+            ), CMD_CONFIRM_TIMEOUT
+        if action == "set_fan":
+            fm = kwargs["fan_mode"]
+            return self._match_key_and(
+                key,
+                lambda d: isinstance(d.state, dict) and d.state.get("fan_mode") == fm,
+            ), CMD_CONFIRM_TIMEOUT
+        if action == "set_preset":
+            pm = kwargs["preset_mode"]
+            return self._match_key_and(
+                key,
+                lambda d: isinstance(d.state, dict)
+                and d.state.get("preset_mode") == pm,
+            ), CMD_CONFIRM_TIMEOUT
+        if action == "set_temperature":
+            tt = kwargs["target_temp"]
+            hm = kwargs.get("hvac_mode")
+            return self._match_key_and(
+                key,
+                lambda d: isinstance(d.state, dict)
+                and d.state.get("target_temp") == tt
+                and (hm is None or d.state.get("hvac_mode") == hm),
+            ), max(CMD_CONFIRM_TIMEOUT, 1.5)
+        if action == "turn_on":
+            return self._match_key_and(
+                key,
+                lambda d: isinstance(d.state, dict) and d.state.get("state") is True,
+            ), CMD_CONFIRM_TIMEOUT
+        if action == "turn_off":
+            return self._match_key_and(
+                key,
+                lambda d: isinstance(d.state, dict) and d.state.get("state") is False,
+            ), CMD_CONFIRM_TIMEOUT
+        return self._match_key_and(key, lambda _d: False), CMD_CONFIRM_TIMEOUT
+
+    def build_expectation(
+        self, key: DeviceKey, action: str, **kwargs: Any
+    ) -> Tuple[Predicate, float]:
         dt = key.device_type
-        if dt in (DeviceType.LIGHT, DeviceType.LIGHTCUTOFF, DeviceType.OUTLET, DeviceType.ELEVATOR):
+        if dt in (
+            DeviceType.LIGHT,
+            DeviceType.LIGHTCUTOFF,
+            DeviceType.OUTLET,
+            DeviceType.ELEVATOR,
+        ):
             return self._expect_for_switch_like(key, action, **kwargs)
         if dt == DeviceType.VENTILATION:
             return self._expect_for_ventilation(key, action, **kwargs)
@@ -603,10 +892,32 @@ class KocomController:
         if dt == DeviceType.THERMOSTAT:
             return self._expect_for_thermostat(key, action, **kwargs)
         if dt == DeviceType.AIRCONDITIONER:
-            return self._expect_for_airconditioner(key, action, **kwargs)            
+            return self._expect_for_airconditioner(key, action, **kwargs)
         return self._match_key_and(key, lambda _d: False), CMD_CONFIRM_TIMEOUT
 
-    def generate_command(self, key: DeviceKey, action: str, **kwargs) -> Tuple[bytes, Predicate, float]:
+    def _seed_from_report(
+        self, key: DeviceKey, data: bytearray, indices: tuple[int, ...]
+    ) -> None:
+        """Carry the last reported value of fields a command does not change.
+
+        Command bytes an action leaves out would be sent as zero, and the wallpad
+        may read that as a real value (air-conditioner mode 0 is cool, ventilation
+        speed 0 is stopped). The command fields sit at the same offsets as in the
+        status report, so the last report is echoed for them. Without a known
+        report the bytes stay zero, as before.
+        """
+        registry = getattr(self.gateway, "registry", None)
+        known = registry.get(key) if registry is not None else None
+        packet = getattr(known, "_packet", None)
+        if not packet or len(packet) != PACKET_LEN:
+            return
+        payload = PacketFrame(bytes(packet)).payload
+        for index in indices:
+            data[index] = payload[index]
+
+    def generate_command(
+        self, key: DeviceKey, action: str, **kwargs
+    ) -> Tuple[bytes, Predicate, float]:
         device_type = key.device_type
         room_index = key.room_index
         device_index = key.device_index
@@ -627,12 +938,14 @@ class KocomController:
         if device_type in (DeviceType.LIGHT, DeviceType.OUTLET):
             data = self._generate_switch(key, action, data)
         elif device_type == DeviceType.VENTILATION:
-            data = self._generate_ventilation(action, data, **kwargs)
+            data = self._generate_ventilation(key, action, data, **kwargs)
         elif device_type == DeviceType.THERMOSTAT:
-            data = self._generate_thermostat(action, data, **kwargs)
+            data = self._generate_thermostat(key, action, data, **kwargs)
         elif device_type == DeviceType.AIRCONDITIONER:
-            data = self._generate_airconditioner(action, data, **kwargs)
+            data = self._generate_airconditioner(key, action, data, **kwargs)
         elif device_type == DeviceType.GASVALVE:
+            if action != "turn_off":
+                raise ValueError("The gas valve frame only supports turn_off")
             command = bytes([0x02])
         elif device_type == DeviceType.ELEVATOR:
             dest_dev = bytes([0x01])
@@ -643,7 +956,18 @@ class KocomController:
         else:
             raise ValueError(f"Invalid device generator: {device_type}")
 
-        body = b"".join([type_bytes, padding, dest_dev, dest_room, src_dev, src_room, command, bytes(data)])
+        body = b"".join(
+            [
+                type_bytes,
+                padding,
+                dest_dev,
+                dest_room,
+                src_dev,
+                src_room,
+                command,
+                bytes(data),
+            ]
+        )
         checksum = bytes([self._checksum(body)])
         packet = bytes([0xAA, 0x55]) + body + checksum + bytes([0x0D, 0x0D])
 
@@ -661,20 +985,29 @@ class KocomController:
                 data[idx] = 0xFF if action == "turn_on" else 0x00
         return data
 
-    def _generate_ventilation(self, action: str, data: bytes, **kwargs: Any) -> bytes:
+    def _generate_ventilation(
+        self, key: DeviceKey, action: str, data: bytearray, **kwargs: Any
+    ) -> bytearray:
         if action == "set_preset":
             pm = kwargs["preset_mode"]
+            self._seed_from_report(key, data, (2,))  # keep the current speed
             data[0] = 0x11
             data[1] = REV_VENT_PRESET_MAP[pm]
         elif action == "set_percentage":
             speed = kwargs["speed"]
+            self._seed_from_report(key, data, (1,))  # keep the current preset
             data[0] = 0x00 if speed == 0 else 0x11
             data[2] = speed
+            if (preset_mode := kwargs.get("preset_mode")) is not None:
+                data[1] = REV_VENT_PRESET_MAP[preset_mode]
         else:
             data[0] = 0x11 if action == "turn_on" else 0x00
         return data
-    
-    def _generate_thermostat(self, action: str, data: bytes, **kwargs: Any) -> bytes:
+
+    def _generate_thermostat(
+        self, key: DeviceKey, action: str, data: bytearray, **kwargs: Any
+    ) -> bytearray:
+        self._seed_from_report(key, data, (1, 2))  # preset and target temperature
         if action == "set_hvac":
             hm = kwargs["hvac_mode"]
             data[0] = 0x11 if hm == HVACMode.HEAT else 0x00
@@ -685,11 +1018,14 @@ class KocomController:
             data[1] = 0x01 if pm == PRESET_AWAY else 0x00
         elif action == "set_temperature":
             tt = kwargs["target_temp"]
-            data[0] = 0x11
+            data[0] = 0x00 if kwargs.get("hvac_mode") == HVACMode.OFF else 0x11
             data[2] = int(tt)
         return data
-    
-    def _generate_airconditioner(self, action: str, data: bytes, **kwargs: Any) -> bytes:
+
+    def _generate_airconditioner(
+        self, key: DeviceKey, action: str, data: bytearray, **kwargs: Any
+    ) -> bytearray:
+        self._seed_from_report(key, data, (1, 2, 5))  # mode, fan, target temperature
         if action == "set_hvac":
             hm = kwargs["hvac_mode"]
             if hm == HVACMode.OFF:
@@ -703,7 +1039,9 @@ class KocomController:
             data[2] = REV_AC_FAN_MAP[fm]
         elif action == "set_temperature":
             tt = kwargs["target_temp"]
-            data[0] = 0x10
+            hm = kwargs.get("hvac_mode")
+            data[0] = 0x00 if hm == HVACMode.OFF else 0x10
+            if hm is not None and hm != HVACMode.OFF:
+                data[1] = REV_AC_HVAC_MAP[hm]
             data[5] = int(tt)
         return data
-    

@@ -1,5 +1,13 @@
 {
     "title": "Kocom Wallpad",
+    "options": {
+        "step": {
+            "init": {
+                "description": "Auto preserves the existing device temperature step. Select 1 to restrict thermostat controls to 1°C steps. Air conditioners are unaffected. This option does not change packet encoding or add half-degree protocol support.",
+                "data": {"thermostat_step": "Thermostat step (auto: existing device value, 1: 1°C)"}
+            }
+        }
+    },
     "config": {
         "step": {
             "user": {
@@ -11,13 +19,26 @@
                 "data_description": {
                     "host": "If it is serial communication, enter Host and ignore Port."
                 }
+            },
+            "reconfigure": {
+                "description": "Change the device's address and port. Existing entities are kept.",
+                "data": {
+                    "host": "Host",
+                    "port": "Port"
+                },
+                "data_description": {
+                    "host": "If it is serial communication, enter Host and ignore Port."
+                }
             }
         },
         "abort": {
-            "single_instance_allowed": "Only a single configuration is allowed."
+            "single_instance_allowed": "Only a single configuration is allowed.",
+            "already_configured": "This device is already configured.",
+            "reconfigure_successful": "The connection settings were updated."
         },
         "error": {
-            "cannot_connect": "Failed to connect."
+            "cannot_connect": "Could not connect. Check the address and port, and that no other program is using the connection.",
+            "invalid_host": "Enter a host name, IP address or serial device path."
         }
     },
     "entity": {
@@ -36,11 +57,13 @@
             "outlet": {
                 "name": "Outlet {id}"
             },
-            "gasvalve": {
-                "name": "Gas Valve {id}"
-            },
             "elevator": {
                 "name": "Elevator {id}"
+            }
+        },
+        "valve": {
+            "gasvalve": {
+                "name": "Gas Valve {id}"
             }
         },
         "climate": {
@@ -57,6 +80,9 @@
             }
         },
         "sensor": {
+            "last_received": {
+                "name": "Last received"
+            },
             "elevator-direction": {
                 "name": "Elevator Direction {id}"
             },
@@ -92,6 +118,9 @@
             }
         },
         "binary_sensor": {
+            "connection": {
+                "name": "Connection"
+            },
             "motion": {
                 "name": "Motion Sensor(door) {id}"
             },

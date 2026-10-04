@@ -7,6 +7,7 @@ from typing import Any, List
 from homeassistant.components.sensor import (
     SensorEntity,
     SensorDeviceClass,
+    SensorStateClass,
 )
 
 from homeassistant.const import Platform
@@ -19,6 +20,19 @@ from .gateway import KocomGateway
 from .models import DeviceState
 from .entity_base import KocomBaseEntity
 from .const import DOMAIN, LOGGER
+from .hub import KocomLastReceivedSensor
+
+# Numeric readings worth keeping long-term statistics for.
+MEASURED_CLASSES = frozenset(
+    {
+        SensorDeviceClass.TEMPERATURE,
+        SensorDeviceClass.HUMIDITY,
+        SensorDeviceClass.CO2,
+        SensorDeviceClass.PM10,
+        SensorDeviceClass.PM25,
+        SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS,
+    }
+)
 
 
 async def async_setup_entry(
@@ -48,6 +62,7 @@ async def async_setup_entry(
         )
     )
     async_add_sensor()
+    async_add_entities([KocomLastReceivedSensor(gateway)])
 
 
 class KocomSensor(KocomBaseEntity, SensorEntity):
@@ -68,3 +83,9 @@ class KocomSensor(KocomBaseEntity, SensorEntity):
     @property
     def native_unit_of_measurement(self) -> str | None:
         return self._device.attribute.get("unit_of_measurement", None)
+
+    @property
+    def state_class(self) -> SensorStateClass | None:
+        if self.device_class in MEASURED_CLASSES:
+            return SensorStateClass.MEASUREMENT
+        return None

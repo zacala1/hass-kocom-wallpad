@@ -19,7 +19,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from .gateway import KocomGateway
 from .models import DeviceState
 from .entity_base import KocomBaseEntity
-from .const import DOMAIN, LOGGER
+from .const import DOMAIN, LOGGER, DeviceType
 
 
 async def async_setup_entry(
@@ -82,45 +82,53 @@ class KocomClimate(KocomBaseEntity, ClimateEntity):
         return self._device.attribute["hvac_modes"]
     
     @property
-    def fan_mode(self) -> str:
-        return self._device.state["fan_mode"]
+    def fan_mode(self) -> str | None:
+        return self._device.state.get("fan_mode")
     
     @property
-    def fan_modes(self) -> List[str]:
-        return self._device.attribute["fan_modes"]
+    def fan_modes(self) -> List[str] | None:
+        return self._device.attribute.get("fan_modes")
 
     @property
-    def preset_mode(self) -> str:
-        return self._device.state["preset_mode"]
+    def preset_mode(self) -> str | None:
+        return self._device.state.get("preset_mode")
     
     @property
-    def preset_modes(self) -> List[str]:
-        return self._device.attribute["preset_modes"]
+    def preset_modes(self) -> List[str] | None:
+        return self._device.attribute.get("preset_modes")
 
     @property
-    def current_temperature(self) -> float:
-        return self._device.state["current_temp"]
+    def current_temperature(self) -> float | None:
+        # The wallpad reports 0 when it has no reading; that is not 0 degC.
+        return self._device.state["current_temp"] or None
 
     @property
-    def target_temperature(self) -> float:
-        return self._device.state["target_temp"]
+    def target_temperature(self) -> float | None:
+        return self._device.state["target_temp"] or None
     
     @property
     def target_temperature_step(self) -> float:
+        if (
+            self._device.key.device_type == DeviceType.THERMOSTAT
+            and self.gateway.entry.options.get("thermostat_step", "auto") == "1"
+        ):
+            return 1.0
         return self._device.attribute["temp_step"]
     
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         args = {"hvac_mode": hvac_mode}
-        await self.gateway.async_send_action(self._device.key, "set_hvac", **args)
+        await self.async_send_command("set_hvac", **args)
         
     async def async_set_fan_mode(self, fan_mode: str) -> None:
         args = {"fan_mode": fan_mode}
-        await self.gateway.async_send_action(self._device.key, "set_fan", **args)
+        await self.async_send_command("set_fan", **args)
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         args = {"preset_mode": preset_mode}
-        await self.gateway.async_send_action(self._device.key, "set_preset", **args)
+        await self.async_send_command("set_preset", **args)
 
     async def async_set_temperature(self, **kwargs) -> None:
-        args = {"target_temp": float(kwargs[ATTR_TEMPERATURE])}
-        await self.gateway.async_send_action(self._device.key, "set_temperature", **args)
+        args: dict[str, float | HVACMode] = {"target_temp": float(kwargs[ATTR_TEMPERATURE])}
+        if (hvac_mode := kwargs.get("hvac_mode")) is not None:
+            args["hvac_mode"] = HVACMode(hvac_mode)
+        await self.async_send_command("set_temperature", **args)

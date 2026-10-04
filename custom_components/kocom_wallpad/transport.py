@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Optional, Tuple
-import asyncio
-import serial_asyncio
-import time
+
+import serialx
 
 from .const import LOGGER
 
@@ -19,6 +21,7 @@ class AsyncConnection:
     serial_baud: int = 9600
     connect_timeout: float = 5.0
     reconnect_backoff: Tuple[float, float] = (1.0, 30.0)  # min, max seconds
+    connection_state_callback: Callable[[bool], None] | None = None
 
     def __post_init__(self) -> None:
         """Initialize the connection."""
@@ -26,42 +29,72 @@ class AsyncConnection:
         self._writer: Optional[asyncio.StreamWriter] = None
         self._last_activity_mono: float = time.monotonic()
         self._last_reconn_delay: float = 0.0
-        self._connected = True
+        self._connected = False
+        self._reconnect_lock = asyncio.Lock()
+
+    async def _connect_once(self) -> None:
+        """Attempt a single connection, without any self-healing on failure."""
+        if self.port is None:
+            self._reader, self._writer = await asyncio.wait_for(
+                serialx.open_serial_connection(
+                    url=self.host, baudrate=self.serial_baud
+                ),
+                timeout=self.connect_timeout,
+            )
+            LOGGER.info("Connection opened for serial: %s", self.host)
+        else:
+            self._reader, self._writer = await asyncio.wait_for(
+                asyncio.open_connection(self.host, self.port),
+                timeout=self.connect_timeout,
+            )
+            LOGGER.info("Connection opened for socket: %s:%s", self.host, self.port)
+        self._set_connected(connected=True)
+        self._touch()
 
     async def open(self) -> None:
+        """Attempt the initial connection once and raise on failure.
+
+        This intentionally does not fall back to the infinite-retry reconnect()
+        loop: the caller (KocomGateway.async_start, during config entry setup)
+        needs a bounded failure so Home Assistant can raise ConfigEntryNotReady
+        and use its own retry-with-backoff instead of blocking setup forever.
+        Recovering an already-established connection that drops later is
+        handled separately by the reader calling reconnect().
+        """
+        await self._connect_once()
+
+    async def _close_writer(self) -> None:
+        if self._writer is None:
+            return
+        self._writer.close()
         try:
-            if self.port is None:
-                self._reader, self._writer = await serial_asyncio.open_serial_connection(
-                    url=self.host, baudrate=self.serial_baud
-                )
-                LOGGER.info("Connection opened for serial: %s", self.host)
-            else:
-                self._reader, self._writer = await asyncio.wait_for(
-                    asyncio.open_connection(self.host, self.port),
-                    timeout=self.connect_timeout,
-                )
-                LOGGER.info("Connection opened for socket: %s:%s", self.host, self.port)
-            self._connected = True
-            self._touch()
-        except Exception as e:
-            LOGGER.warning("Connection open failed: %r", e)
-            await self.reconnect()
+            await asyncio.wait_for(self._writer.wait_closed(), timeout=2.0)
+        except (OSError, RuntimeError, TimeoutError) as err:
+            LOGGER.debug("Connection close failed: %r", err)
+        finally:
+            self._writer = None
 
     async def close(self) -> None:
+        self._set_connected(connected=False)
         if self._writer is not None:
             LOGGER.info("Closing connection")
-            self._writer.close()
-            try:
-                await self._writer.wait_closed()
-            except Exception:
-                pass
-            finally:
-                self._writer = None
+        await self._close_writer()
         self._reader = None
-        self._connected = False
+
+    def _set_connected(self, *, connected: bool) -> None:
+        """Publish transport transitions immediately, before recovery awaits."""
+        if self._connected == connected:
+            return
+        self._connected = connected
+        if self.connection_state_callback is not None:
+            self.connection_state_callback(connected)
 
     def _is_connected(self) -> bool:
         return self._connected
+
+    def mark_disconnected(self) -> None:
+        """Treat the link as lost so the next read triggers a reconnect."""
+        self._set_connected(connected=False)
 
     def _touch(self) -> None:
         self._last_activity_mono = time.monotonic()
@@ -78,10 +111,13 @@ class AsyncConnection:
             await self._writer.drain()
             self._touch()
             return len(data)
-        except Exception as e:
+        except asyncio.CancelledError:
+            self._set_connected(connected=False)
+            raise
+        except Exception as e:  # serialx.SerialException is not an OSError
             LOGGER.warning("Send failed: %r", e)
-            await self.reconnect()
-            return 0
+            self._set_connected(connected=False)
+            raise
 
     async def recv(self, nbytes: int, timeout: float = 0.05) -> bytes:
         if not self._reader:
@@ -90,31 +126,38 @@ class AsyncConnection:
             chunk = await asyncio.wait_for(self._reader.read(nbytes), timeout=timeout)
         except asyncio.TimeoutError:
             return b""
-        except Exception as e:
+        except Exception as e:  # serialx.SerialException is not an OSError
             LOGGER.warning("Recv failed: %r", e)
+            self._set_connected(connected=False)
             await self.reconnect()
             return b""
         if chunk:
             self._touch()
+        elif self.port is not None:
+            await self.close()
+            await self.reconnect()
         return chunk
 
     async def reconnect(self) -> None:
-        self._connected = False
-        delay_min, delay_max = self.reconnect_backoff
-        if self._last_reconn_delay > 0.0:
-            delay = self._last_reconn_delay
-        else:
-            delay = delay_min
+        async with self._reconnect_lock:
+            if self._is_connected():
+                return
 
-        if self._writer is not None:
-            self._writer.close()
-            await self._writer.wait_closed()
-        
-        LOGGER.info("Connection lost. Reconnecting in %.1f sec...", delay)
-        await asyncio.sleep(delay)
-        self._last_reconn_delay = min(delay * 2, delay_max)
-        await self.open()
+            await self._close_writer()
 
-        if self._is_connected():
-            LOGGER.info("Connection reconnected")
-            self._last_reconn_delay = delay_min
+            delay_min, delay_max = self.reconnect_backoff
+            delay = self._last_reconn_delay if self._last_reconn_delay > 0.0 else delay_min
+
+            while True:
+                LOGGER.info("Connection lost. Reconnecting in %.1f sec...", delay)
+                await asyncio.sleep(delay)
+                self._last_reconn_delay = min(delay * 2, delay_max)
+                try:
+                    await self._connect_once()
+                except Exception as e:  # serialx.SerialException is not an OSError
+                    LOGGER.warning("Reconnect attempt failed: %r", e)
+                    delay = self._last_reconn_delay
+                    continue
+                LOGGER.info("Connection reconnected")
+                self._last_reconn_delay = delay_min
+                return

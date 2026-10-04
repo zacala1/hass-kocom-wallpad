@@ -9,7 +9,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass
 )
 
-from homeassistant.const import Platform
+from homeassistant.const import EntityCategory, Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -18,7 +18,8 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from .gateway import KocomGateway
 from .models import DeviceState
 from .entity_base import KocomBaseEntity
-from .const import DOMAIN, LOGGER
+from .const import DOMAIN, LOGGER, SubType
+from .hub import KocomConnectionSensor
 
 
 async def async_setup_entry(
@@ -48,6 +49,7 @@ async def async_setup_entry(
         )
     )
     async_add_binary_sensor()
+    async_add_entities([KocomConnectionSensor(gateway)])
     
 
 class KocomBinarySensor(KocomBaseEntity, BinarySensorEntity):
@@ -56,6 +58,8 @@ class KocomBinarySensor(KocomBaseEntity, BinarySensorEntity):
     def __init__(self, gateway: KocomGateway, device: DeviceState) -> None:
         """Initialize the binary sensor."""
         super().__init__(gateway, device)
+        if device.key.sub_type == SubType.ERRCODE:
+            self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
     def is_on(self) -> bool:
