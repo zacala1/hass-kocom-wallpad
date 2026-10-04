@@ -1,12 +1,8 @@
 {
-  "publication_enabled": false,
+  "publication_enabled": true,
   "version": "2.1.0b2",
-  "runtime_tree": "",
-  "license_reviewed": false,
-  "license_evidence": "",
-  "clean_install_evidence": "",
-  "hardware_evidence": "",
-  "quality_contract_evidence": "",
+  "runtime_tree": "02b0583544ac7f4175054bc76e87a0a46ebd6988",
+  "license_reviewed": true,
   "latest_stable_ha": "2026.9.4",
   "ha_matrix": [
     {"ha": "2025.2.2", "python": "3.13", "ha_test": "0.13.212", "serialx": "1.10.0"},

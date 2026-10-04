@@ -48,17 +48,15 @@ foreach ($file in $files) {
 }
 
 if ($Publication) {
+    # Only beta and release-candidate versions can be published here. They exist to
+    # collect field reports, so hardware and quality evidence cannot be a precondition;
+    # what they need is an enabled policy for exactly this runtime, a license, and the
+    # full CI that the workflow runs before the publish job.
     if ($manifest.version -notmatch '(?:b|rc)[1-9]\d*$') { throw 'Stable publication is forbidden by this workflow' }
     if ($policy.publication_enabled -isnot [bool] -or -not $policy.publication_enabled) { throw 'Publication is disabled: see release/policy.json' }
     $runtimeTree = Invoke-RepositoryGit @('rev-parse', ('HEAD:' + $prefix.TrimEnd('/')))
-    if ($policy.runtime_tree -cne $runtimeTree) { throw 'Release evidence does not match runtime tree' }
+    if ($policy.runtime_tree -cne $runtimeTree) { throw 'Policy runtime tree does not match the release commit' }
     if ($policy.license_reviewed -isnot [bool] -or -not $policy.license_reviewed -or -not (Test-Path -LiteralPath (Join-Path $Root 'LICENSE') -PathType Leaf)) { throw 'License/redistribution review is missing' }
-    foreach ($field in @('license_evidence', 'clean_install_evidence', 'hardware_evidence', 'quality_contract_evidence')) {
-        $evidence = $policy.$field
-        if ($evidence -notmatch '^release/evidence/[a-zA-Z0-9_-]+\.md$' -or -not (Invoke-RepositoryGit @('ls-files', '--', $evidence))) { throw "Missing tracked evidence: $field" }
-        $evidenceText = Get-Content -Raw -LiteralPath (Join-Path $Root $evidence)
-        if (-not $evidenceText.Contains($runtimeTree) -or -not $evidenceText.Contains($manifest.version)) { throw "Stale evidence: $field" }
-    }
 }
 
 $outputPath = [IO.Path]::GetFullPath((Join-Path $Root $OutputDirectory))

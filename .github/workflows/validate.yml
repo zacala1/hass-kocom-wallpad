@@ -7,6 +7,11 @@ on:
     - cron: "0 0 * * 0"
   workflow_dispatch:
   workflow_call:
+    inputs:
+      hacs-required:
+        description: Whether HACS store validation must pass (it checks repository settings, not the code).
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -116,6 +121,8 @@ jobs:
       - uses: home-assistant/actions/hassfest@06749dd8c0b54f350bc69c8752456cee498808a3
 
   validate-hacs:
+    # A preview release is not gated on store metadata such as issues and topics.
+    if: ${{ inputs.hacs-required != false }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

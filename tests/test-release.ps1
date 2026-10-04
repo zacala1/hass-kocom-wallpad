@@ -25,6 +25,13 @@ Copy-Item -LiteralPath (Join-Path $sourceRoot 'custom_components') -Destination 
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'release') -Destination $fixture -Recurse
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'hacs.json') -Destination $fixture
 Copy-Item -LiteralPath (Join-Path $sourceRoot '.gitignore') -Destination $fixture
+# The scenarios below start from a disabled policy, whatever the repository's own is.
+$fixturePolicyPath = Join-Path $fixture 'release/policy.json'
+$fixturePolicy = Get-Content -Raw $fixturePolicyPath | ConvertFrom-Json
+$fixturePolicy.publication_enabled = $false
+$fixturePolicy.runtime_tree = ''
+$fixturePolicy.license_reviewed = $false
+$fixturePolicy | ConvertTo-Json -Depth 5 | Set-Content $fixturePolicyPath
 git -C $fixture init --quiet
 Save-Fixture
 
@@ -87,11 +94,21 @@ $policy = Get-Content -Raw $policyPath | ConvertFrom-Json
 $policy.publication_enabled = $true
 $policy | ConvertTo-Json -Depth 5 | Set-Content $policyPath
 Save-Fixture
-Assert-Failure { & $builder -Root $fixture -Publication } 'Release evidence does not match runtime tree'
+Assert-Failure { & $builder -Root $fixture -Publication } 'Policy runtime tree does not match the release commit'
 $policy.runtime_tree = git -C $fixture rev-parse HEAD:custom_components/kocom_wallpad
 $policy | ConvertTo-Json -Depth 5 | Set-Content $policyPath
 Save-Fixture
 Assert-Failure { & $builder -Root $fixture -Publication } 'License/redistribution review is missing'
+# A reviewed license without the license file is still refused.
+$policy.license_reviewed = $true
+$policy | ConvertTo-Json -Depth 5 | Set-Content $policyPath
+Save-Fixture
+Assert-Failure { & $builder -Root $fixture -Publication } 'License/redistribution review is missing'
+# With both, a preview publishes without hardware or quality evidence.
+Set-Content -LiteralPath (Join-Path $fixture 'LICENSE') -Value 'MIT License'
+Save-Fixture
+& $builder -Root $fixture -Publication -OutputDirectory 'dist/publication'
+if (-not (Test-Path -LiteralPath (Join-Path $fixture 'dist/publication/kocom_wallpad.zip'))) { throw 'Preview publication did not build' }
 
 # Given: stable manifest and matching policy. Then: preview publisher rejects it.
 $manifestPath = Join-Path $fixture 'custom_components/kocom_wallpad/manifest.json'
