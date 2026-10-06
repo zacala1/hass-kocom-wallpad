@@ -18,6 +18,7 @@ PLATFORMS = [
     Platform.SENSOR,
     Platform.BINARY_SENSOR,
     Platform.VALVE,
+    Platform.BUTTON,
 ]
 
 PACKET_PREFIX = bytes([0xAA, 0x55])

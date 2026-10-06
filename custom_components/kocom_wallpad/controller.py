@@ -616,7 +616,10 @@ class KocomController:
             state = False
         elif frame.payload[0] in (0x01, 0x02) or frame.packet_type == 0x0D:
             state = True
-        dev = DeviceState(key=key, platform=Platform.SWITCH, attribute={}, state=state)
+        # A call has no off state, so it is a button. The boolean (the elevator is
+        # on its way) stays on the device state to confirm a call; the direction
+        # sensor is how the progress is shown.
+        dev = DeviceState(key=key, platform=Platform.BUTTON, attribute={}, state=state)
         states.append(dev)
 
         key = DeviceKey(
@@ -948,6 +951,10 @@ class KocomController:
                 raise ValueError("The gas valve frame only supports turn_off")
             command = bytes([0x02])
         elif device_type == DeviceType.ELEVATOR:
+            if action != "turn_on":
+                # The same frame calls the elevator whatever the action; there is
+                # no frame that cancels a call.
+                raise ValueError("The elevator frame only supports turn_on (a call)")
             dest_dev = bytes([0x01])
             dest_room = bytes([0x00])
             src_dev = bytes([0x44])

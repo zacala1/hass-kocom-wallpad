@@ -56,9 +56,11 @@
         "switch": {
             "outlet": {
                 "name": "Outlet {id}"
-            },
+            }
+        },
+        "button": {
             "elevator": {
-                "name": "Elevator {id}"
+                "name": "Elevator Call {id}"
             }
         },
         "valve": {
