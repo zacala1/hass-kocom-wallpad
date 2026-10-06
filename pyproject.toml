@@ -1,6 +1,6 @@
 [project]
 name = "hass-kocom-wallpad"
-version = "2.1.0b2"
+version = "2.1.0b3"
 description = "Development and compatibility checks for the Kocom HA integration"
 requires-python = ">=3.13"
 dependencies = ["serialx==1.10.0"]
