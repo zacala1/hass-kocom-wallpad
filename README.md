@@ -50,27 +50,51 @@ EW11 같은 TCP 변환기 또는 HA에서 접근 가능한 시리얼 장치로 �
 
 ## 설치
 
-현재 이 포크는 릴리스를 발행하지 않았습니다. HACS 설치는 릴리스가 생긴 뒤에 사용할 수 있고,
-그 전에는 수동으로 설치합니다.
+> **베타(프리릴리즈) 버전입니다.** 이 포크의 릴리스는 `b`가 붙은 베타입니다.
+> 베타는 자동 테스트(실제 Home Assistant와 월패드 에뮬레이터)를 통과했지만, 다양한 모델과 어댑터에서 충분히 확인되기 전의 버전입니다.
+> 아래 [베타 사용 안내](#베타-사용-안내)를 읽고 설치해 주세요.
+
+필요한 것은 Home Assistant `2025.2.2` 이상과, 월패드의 RS-485를 TCP로 넘겨 주는 어댑터(EW11 등) 또는 HA에서 보이는 시리얼 장치입니다.
+
+### HACS로 설치 (권장)
+
+1. HACS 오른쪽 위 메뉴(⋮)에서 **Custom repositories**를 엽니다.
+2. **Repository**에 `https://github.com/zacala1/hass-kocom-wallpad`를 입력하고 **Type**은 **Integration**으로 선택한 뒤 추가합니다.
+3. HACS에서 **Kocom Wallpad**를 열고 **Download**를 누릅니다.
+4. 설치할 버전이 베타뿐이면 저장소 페이지의 메뉴(⋮) → **Redownload**에서 **Show beta versions**를 켜고 가장 최신 베타를 선택해 내려받습니다.
+   HACS 버전에 따라 화면 이름이 조금 다를 수 있습니다.
+5. Home Assistant를 재시작합니다.
+6. **설정 → 기기 및 서비스 → 통합구성요소 추가**에서 **Kocom Wallpad**를 검색하고 호스트와 포트를 입력합니다.
+
+자세한 절차는 [HACS 공식 안내](https://www.hacs.xyz/docs/faq/custom_repositories/)를 참고하세요.
 
 ### 수동 설치
 
 1. HA 설정을 백업합니다.
-2. 이 저장소의 `custom_components/kocom_wallpad` 폴더를 HA 설정 디렉터리의 `custom_components/kocom_wallpad`에 복사합니다.
-3. HA를 재시작합니다.
-4. **설정 → 기기 및 서비스 → 통합구성요소 추가**에서 **Kocom Wallpad**를 검색하고 호스트와 포트를 입력합니다.
+2. [Releases](https://github.com/zacala1/hass-kocom-wallpad/releases)에서 원하는 버전의 `kocom_wallpad.zip`을 내려받습니다.
+   `kocom_wallpad.zip.sha256`의 값과 ZIP의 SHA-256이 같은지 확인할 수 있습니다.
+3. HA 설정 디렉터리 아래에 `custom_components/kocom_wallpad/` 폴더를 만들고 ZIP의 내용을 그 안에 풉니다.
+   ZIP 안에 `custom_components` 폴더는 들어 있지 않으며, `manifest.json`이 폴더 바로 아래에 와야 합니다.
+4. HA를 재시작하고 위 6번처럼 통합을 추가합니다.
 
-### HACS (릴리스 발행 후)
-
-HACS의 **Custom repositories**에 `https://github.com/zacala1/hass-kocom-wallpad`를 **Integration**으로 추가하고 설치한 뒤 HA를 재시작합니다.
-베타 버전은 HACS에서 베타 표시를 켜야 보입니다.
-자세한 절차는 [HACS 공식 안내](https://www.hacs.xyz/docs/faq/custom_repositories/)를 참고하세요.
+ZIP 대신 이 저장소의 `custom_components/kocom_wallpad` 폴더를 그대로 복사해도 됩니다.
 
 ### 다른 포크에서 옮길 때
 
 원본과 모든 포크는 같은 도메인 `kocom_wallpad`를 사용하므로 한 HA에 둘 이상 설치할 수 없습니다.
 코드를 받아오는 저장소만 하나로 정하고, 기존 설정 항목은 지우지 않아도 됩니다.
 교체 전에는 HA 전체 백업과 기존 통합 파일 보관을 권장합니다.
+가스밸브가 `switch`에서 `valve`로 바뀌므로 [이전 버전에서 올라오는 경우](#이전-버전에서-올라오는-경우)도 확인하세요.
+
+### 베타 사용 안내
+
+- **설치 전에 HA 전체 백업**을 만들어 두세요. 문제가 생기면 백업을 복원하거나, HACS의 **Redownload**에서 이전 버전을 골라 되돌릴 수 있습니다.
+- 처음에는 조명 상태 수신, 난방 표시, 재시작 후 연결 복구처럼 안전한 항목부터 확인하세요.
+  가스밸브 닫기, 일괄소등처럼 설비에 영향을 주는 동작은 상태를 충분히 확인한 뒤에 시험하세요.
+- 각 릴리스의 [릴리스 노트](https://github.com/zacala1/hass-kocom-wallpad/releases)에 그 버전에서 특히 확인이 필요한 항목을 적습니다.
+- 의견과 문제는 [Issues](https://github.com/zacala1/hass-kocom-wallpad/issues)로 알려 주세요.
+  통합 항목 메뉴(⋮)의 **진단 다운로드**로 받은 파일(호스트는 가려집니다)과 월패드 모델, 어댑터 종류를 함께 적어 주시면 큰 도움이 됩니다.
+  자세한 방법은 [문제 해결 안내](docs/troubleshooting.md#진단-파일)에 있습니다.
 
 ## 옵션
 
