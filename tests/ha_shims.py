@@ -185,6 +185,7 @@ def _install_homeassistant_shims() -> None:
     )
     _set_attributes(restore_state, RestoreEntity=_RestoreEntity)
     _set_attributes(restore_state, RestoredExtraData=lambda value: value)
+    _set_attributes(restore_state, StoredState=object)
     dispatcher = _module("homeassistant.helpers.dispatcher")
     _set_attributes(dispatcher, async_dispatcher_send=lambda *args, **kwargs: None)
     _set_attributes(

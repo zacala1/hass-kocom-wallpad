@@ -13,6 +13,7 @@ from homeassistant.const import Platform
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import restore_state
+from homeassistant.helpers.restore_state import StoredState
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import (
@@ -30,6 +31,20 @@ from .const import (
 from .controller import KocomController
 from .models import DeviceKey, DeviceState
 from .transport import AsyncConnection
+
+
+def _stored_state(hass: HomeAssistant, entity_id: str) -> StoredState | None:
+    """Return the state Home Assistant saved for an entity, on any supported version.
+
+    Home Assistant 2026.11 indexes saved states by entity registry id and replaces
+    ``RestoreStateData.last_states`` with ``async_get_stored_state``; older versions
+    only have ``last_states``. Prefer the new method whenever it exists.
+    """
+    data = restore_state.async_get(hass)
+    getter = getattr(data, "async_get_stored_state", None)
+    if getter is not None:
+        return getter(entity_id)
+    return data.last_states.get(entity_id)
 
 
 @dataclass(slots=True)
@@ -346,7 +361,7 @@ class KocomGateway:
         return self.registry.all_by_platform(platform)
 
     async def _async_put_entity_dispatch_packet(self, entity_id: str) -> None:
-        state = restore_state.async_get(self.hass).last_states.get(entity_id)
+        state = _stored_state(self.hass, entity_id)
         if not (state and state.extra_data):
             return
         packet = state.extra_data.as_dict().get("packet")
