@@ -6,6 +6,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from homeassistant.components.binary_sensor import BinarySensorEntityDescription
+from homeassistant.components.button import ButtonEntityDescription
 from homeassistant.components.climate import ClimateEntityDescription
 from homeassistant.components.fan import FanEntityDescription
 from homeassistant.components.light import LightEntityDescription
@@ -34,6 +35,7 @@ ENTITY_DESCRIPTION_MAP = {
     Platform.SENSOR: SensorEntityDescription,
     Platform.BINARY_SENSOR: BinarySensorEntityDescription,
     Platform.VALVE: ValveEntityDescription,
+    Platform.BUTTON: ButtonEntityDescription,
 }
 
 

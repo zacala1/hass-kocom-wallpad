@@ -1,6 +1,7 @@
 [
   "__init__.py",
   "binary_sensor.py",
+  "button.py",
   "climate.py",
   "config_flow.py",
   "const.py",

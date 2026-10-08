@@ -1918,7 +1918,7 @@ wheels = [
 
 [[package]]
 name = "hass-kocom-wallpad"
-version = "2.1.0b2"
+version = "2.1.0b3"
 source = { virtual = "." }
 dependencies = [
     { name = "serialx" },
