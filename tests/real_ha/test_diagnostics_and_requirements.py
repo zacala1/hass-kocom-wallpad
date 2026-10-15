@@ -123,7 +123,7 @@ async def test_entry_diagnostics_redact_the_host_and_describe_the_bus(
     entry = MockConfigEntry(
         domain=DOMAIN,
         title="127.0.0.1",
-        options={"thermostat_step": "1"},
+        options={"example": "1"},
         data={"host": "127.0.0.1", "port": server.sockets[0].getsockname()[1]},
     )
     entry.add_to_hass(hass)
@@ -140,7 +140,7 @@ async def test_entry_diagnostics_redact_the_host_and_describe_the_bus(
         assert "127.0.0.1" not in text
         assert result["entry"]["data"]["host"] == "**REDACTED**"
         assert result["entry"]["data"]["transport"] == "tcp"
-        assert result["entry"]["options"] == {"thermostat_step": "1"}
+        assert result["entry"]["options"] == {"example": "1"}
         assert result["loaded"] is True
         assert result["connection"]["connected"] is True
         assert result["connection"]["seconds_since_last_receive"] is not None

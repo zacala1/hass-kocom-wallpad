@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, List
+from typing import List
 
 from homeassistant.components.climate import ClimateEntity
 from homeassistant.components.climate.const import (
@@ -19,7 +19,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from .gateway import KocomGateway
 from .models import DeviceState
 from .entity_base import KocomBaseEntity
-from .const import DOMAIN, LOGGER, DeviceType
+from .const import DOMAIN
 
 
 async def async_setup_entry(
@@ -54,11 +54,11 @@ async def async_setup_entry(
 class KocomClimate(KocomBaseEntity, ClimateEntity):
     """Representation of a Kocom climate."""
     
-    _enable_turn_on_off_backwards_compatibility = False
-
     _attr_min_temp = 5
     _attr_max_temp = 40
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    # Temperatures travel as whole degrees, so one degree is the finest step.
+    _attr_target_temperature_step = 1.0
 
     def __init__(self, gateway: KocomGateway, device: DeviceState) -> None:
         """Initialize the climate."""
@@ -105,15 +105,6 @@ class KocomClimate(KocomBaseEntity, ClimateEntity):
     @property
     def target_temperature(self) -> float | None:
         return self._device.state["target_temp"] or None
-    
-    @property
-    def target_temperature_step(self) -> float:
-        if (
-            self._device.key.device_type == DeviceType.THERMOSTAT
-            and self.gateway.entry.options.get("thermostat_step", "auto") == "1"
-        ):
-            return 1.0
-        return self._device.attribute["temp_step"]
     
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         args = {"hvac_mode": hvac_mode}

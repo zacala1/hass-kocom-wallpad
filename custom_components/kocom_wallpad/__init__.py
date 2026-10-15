@@ -37,7 +37,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(
         hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, gateway.async_stop)
     )
-    entry.async_on_unload(entry.add_update_listener(async_reload_options))
+    entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
     try:
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -73,8 +73,8 @@ def _remove_legacy_switches(hass: HomeAssistant, entry: ConfigEntry) -> None:
             registry.async_remove(entity.entity_id)
 
 
-async def async_reload_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Apply device options by reloading this gateway."""
+async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload the gateway when the entry changes, e.g. after a new address."""
     await hass.config_entries.async_reload(entry.entry_id)
 
 
