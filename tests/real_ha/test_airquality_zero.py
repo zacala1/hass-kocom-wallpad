@@ -10,9 +10,9 @@ import pytest_asyncio
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers import restore_state
 from homeassistant.helpers.restore_state import RestoredExtraData, StoredState
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+from restore import seed
 
 from custom_components.kocom_wallpad.const import DOMAIN, DeviceType, SubType
 from custom_components.kocom_wallpad.gateway import KocomGateway
@@ -154,12 +154,15 @@ async def test_restore_zero_packet_recreates_only_previously_registered_subtype(
         f"{key.unique_id}:127.0.0.1",
         config_entry=wallpad.gateway.entry,
     )
-    restore_state.async_get(hass).last_states[entry.entity_id] = StoredState(
-        State(entry.entity_id, "0"),
-        RestoredExtraData(
-            {"packet": report(command, bytes(8)).hex(), "device_storage": {}}
+    seed(
+        hass,
+        StoredState(
+            State(entry.entity_id, "0"),
+            RestoredExtraData(
+                {"packet": report(command, bytes(8)).hex(), "device_storage": {}}
+            ),
+            datetime.now(UTC),
         ),
-        datetime.now(UTC),
     )
     # When the integration runs its real config-entry restoration path.
     await wallpad.gateway.async_get_entity_registry()

@@ -78,6 +78,57 @@ async def test_send_serial_library_error_marks_link_lost() -> None:
     assert not connection._is_connected()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("port", [None, 8899], ids=["serial", "tcp"])
+async def test_end_of_stream_is_a_lost_connection_on_every_transport(
+    port: int | None,
+) -> None:
+    # Given a reader whose peer has closed: read() now returns b"" immediately.
+    connection = AsyncConnection("/dev/ttyUSB0" if port is None else "wallpad", port)
+    connection._connected = True
+    eof = asyncio.StreamReader()
+    eof.feed_eof()
+    connection._reader = eof
+    # When one receive hits it, then it is handled as a lost link and reconnects.
+    with patch.object(connection, "reconnect", AsyncMock()) as reconnect:
+        assert await connection.recv(512) == b""
+        reconnect.assert_awaited_once()
+    assert not connection._is_connected()
+
+
+@pytest.mark.asyncio
+async def test_serial_end_of_stream_does_not_starve_other_tasks() -> None:
+    # Given a serial connection at end-of-stream whose reconnect restores a quiet link.
+    connection = AsyncConnection("/dev/ttyUSB0", None)
+    connection._connected = True
+    eof = asyncio.StreamReader()
+    eof.feed_eof()
+    connection._reader = eof
+
+    async def reconnect() -> None:
+        connection._reader = asyncio.StreamReader()
+        connection._set_connected(connected=True)
+
+    connection.reconnect = reconnect  # type: ignore[method-assign]
+    ticks = 0
+
+    async def other_work() -> None:
+        nonlocal ticks
+        while True:
+            await asyncio.sleep(0.001)
+            ticks += 1
+
+    task = asyncio.create_task(other_work())
+    try:
+        # When the gateway's receive pattern runs for a while,
+        for _ in range(30):
+            await connection.recv(512, 0.01)
+        # then everything else keeps running (an endless b"" loop would freeze it).
+        assert ticks > 0
+    finally:
+        await stop(task)
+
+
 def test_bad_packet_does_not_drop_following_packets() -> None:
     controller = KocomController(SimpleNamespace())
     first = frame(0x0E, 1, bytes(8))

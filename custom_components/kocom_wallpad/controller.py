@@ -384,9 +384,6 @@ class KocomController:
                 "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
                 "feature_preset": True,
                 "preset_modes": [PRESET_AWAY, PRESET_NONE],
-                "temp_step": self._device_storage.get(
-                    f"{key.unique_id}_thermo_step", 1.0
-                ),
             }
             state = {
                 "hvac_mode": havc_mode,
@@ -400,12 +397,6 @@ class KocomController:
                     f"{key.unique_id}_thermo_current", current_temp
                 ),
             }
-            if (
-                target_temp % 1 == 0.5
-                and self._device_storage.get(f"{key.unique_id}_thermo_step") != 0.5
-            ):
-                LOGGER.debug("0.5°C step detected, heating supports 0.5 increments.")
-                self._device_storage[f"{key.unique_id}_thermo_step"] = 0.5
             if target_temp != 0 and current_temp != 0:
                 if (
                     havc_mode == HVACMode.HEAT
@@ -498,7 +489,6 @@ class KocomController:
                 "hvac_modes": [*AIRCONDITIONER_HVAC_MAP.values(), HVACMode.OFF],
                 "fan_modes": [*AIRCONDITIONER_FAN_MAP.values()],
                 "feature_fan": True,
-                "temp_step": 1.0,
             }
             state = {
                 "hvac_mode": havc_mode,
@@ -616,7 +606,10 @@ class KocomController:
             state = False
         elif frame.payload[0] in (0x01, 0x02) or frame.packet_type == 0x0D:
             state = True
-        dev = DeviceState(key=key, platform=Platform.SWITCH, attribute={}, state=state)
+        # A call has no off state, so it is a button. The boolean (the elevator is
+        # on its way) stays on the device state to confirm a call; the direction
+        # sensor is how the progress is shown.
+        dev = DeviceState(key=key, platform=Platform.BUTTON, attribute={}, state=state)
         states.append(dev)
 
         key = DeviceKey(
@@ -920,8 +913,6 @@ class KocomController:
     ) -> Tuple[bytes, Predicate, float]:
         device_type = key.device_type
         room_index = key.room_index
-        device_index = key.device_index
-        sub_type = key.sub_type
 
         if device_type not in REV_DT_MAP:
             raise ValueError(f"Invalid device type: {device_type}")
@@ -948,6 +939,10 @@ class KocomController:
                 raise ValueError("The gas valve frame only supports turn_off")
             command = bytes([0x02])
         elif device_type == DeviceType.ELEVATOR:
+            if action != "turn_on":
+                # The same frame calls the elevator whatever the action; there is
+                # no frame that cancels a call.
+                raise ValueError("The elevator frame only supports turn_on (a call)")
             dest_dev = bytes([0x01])
             dest_room = bytes([0x00])
             src_dev = bytes([0x44])

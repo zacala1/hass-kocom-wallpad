@@ -30,23 +30,6 @@ import custom_components.kocom_wallpad as integration
 
 
 class ProtocolTests(unittest.TestCase):
-    def test_default_temperature_step_preserves_device_value(self) -> None:
-        key = DeviceKey(DeviceType.THERMOSTAT, 1, 0, SubType.NONE)
-        device = DeviceState(key, Platform.CLIMATE, {"temp_step": 0.5}, {})
-        gateway = SimpleNamespace(host="wallpad", entry=SimpleNamespace(options={}))
-        self.assertEqual(0.5, KocomClimate(gateway, device).target_temperature_step)
-
-    def test_one_degree_override_is_optional_and_thermostat_only(self) -> None:
-        key = DeviceKey(DeviceType.THERMOSTAT, 1, 0, SubType.NONE)
-        device = DeviceState(key, Platform.CLIMATE, {"temp_step": 0.5}, {})
-        gateway = SimpleNamespace(
-            host="wallpad", entry=SimpleNamespace(options={"thermostat_step": "1"})
-        )
-        self.assertEqual(1.0, KocomClimate(gateway, device).target_temperature_step)
-        aircon_key = DeviceKey(DeviceType.AIRCONDITIONER, 1, 0, SubType.NONE)
-        aircon = DeviceState(aircon_key, Platform.CLIMATE, {"temp_step": 0.5}, {})
-        self.assertEqual(0.5, KocomClimate(gateway, aircon).target_temperature_step)
-
     def test_thermostat_optional_fan_properties_are_none(self) -> None:
         key = DeviceKey(DeviceType.THERMOSTAT, 1, 0, SubType.NONE)
         device = DeviceState(key, Platform.CLIMATE, {}, {})

@@ -16,7 +16,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from .gateway import KocomGateway
 from .models import DeviceState
 from .entity_base import KocomBaseEntity
-from .const import DOMAIN, LOGGER, DeviceType
+from .const import DOMAIN, DeviceType
 
 
 async def async_setup_entry(
@@ -64,8 +64,9 @@ class KocomLight(KocomBaseEntity, LightEntity):
 
     def _ensure_controllable(self) -> None:
         if self._device.key.device_type == DeviceType.LIGHTCUTOFF:
-            message = "The all-off signal is state only and cannot be controlled"
-            raise HomeAssistantError(message)
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="all_off_state_only"
+            )
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         self._ensure_controllable()

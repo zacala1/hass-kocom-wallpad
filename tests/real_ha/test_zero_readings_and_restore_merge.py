@@ -7,11 +7,12 @@ from frames import controller_with, frame
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers import restore_state
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     mock_restore_cache_with_extra_data,
 )
+
+from restore import stored
 
 from custom_components.kocom_wallpad.climate import KocomClimate
 from custom_components.kocom_wallpad.const import DOMAIN, DeviceType, SubType
@@ -145,7 +146,8 @@ async def test_restore_merges_every_entity_snapshot_without_aliasing(
     assert storage["ventil_feature"] is True
     # And changing live storage does not rewrite the saved snapshot.
     storage["ventil_modes"].append("sleep")
-    saved = restore_state.async_get(hass).last_states[first.entity_id]
+    saved = stored(hass, first.entity_id)
+    assert saved is not None
     assert saved.extra_data.as_dict()["device_storage"]["ventil_modes"] == [
         "ventilation",
         "auto",

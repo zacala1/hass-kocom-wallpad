@@ -133,7 +133,11 @@ class AsyncConnection:
             return b""
         if chunk:
             self._touch()
-        elif self.port is not None:
+        else:
+            # An empty read is end-of-stream for serial just as for TCP. Handing it
+            # back to a loop that never waits would spin without yielding to Home
+            # Assistant, so treat it as a lost connection.
+            LOGGER.warning("Connection closed by the other end; reconnecting")
             await self.close()
             await self.reconnect()
         return chunk

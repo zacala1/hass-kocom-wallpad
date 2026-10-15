@@ -37,7 +37,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(
         hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, gateway.async_stop)
     )
-    entry.async_on_unload(entry.add_update_listener(async_reload_options))
+    entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
     try:
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -46,26 +46,35 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await gateway.async_stop()
         raise
 
-    _remove_legacy_gas_switches(hass, entry)
+    _remove_legacy_switches(hass, entry)
     return True
 
 
-def _remove_legacy_gas_switches(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """The gas valve is a valve entity now; drop the switch it used to be.
+# Devices that used to be switches: the gas valve is a valve now, the elevator call a
+# button. Their unique ids start with the device type value.
+LEGACY_SWITCH_PREFIXES = (
+    f"{DeviceType.GASVALVE.value}-",
+    f"{DeviceType.ELEVATOR.value}-",
+)
+
+
+def _remove_legacy_switches(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Drop the switches the gas valve and the elevator call used to be.
 
     This runs after the platforms are set up, so the old entity has already served
     as the source of the saved frame that registers the valve. Its object id is the
     same, so the valve usually keeps the name apart from the domain.
     """
     registry = er.async_get(hass)
-    prefix = f"{DeviceType.GASVALVE.value}-"
     for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
-        if entity.domain == "switch" and entity.unique_id.startswith(prefix):
+        if entity.domain == "switch" and entity.unique_id.startswith(
+            LEGACY_SWITCH_PREFIXES
+        ):
             registry.async_remove(entity.entity_id)
 
 
-async def async_reload_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Apply device options by reloading this gateway."""
+async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload the gateway when the entry changes, e.g. after a new address."""
     await hass.config_entries.async_reload(entry.entry_id)
 
 

@@ -6,6 +6,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from homeassistant.components.binary_sensor import BinarySensorEntityDescription
+from homeassistant.components.button import ButtonEntityDescription
 from homeassistant.components.climate import ClimateEntityDescription
 from homeassistant.components.fan import FanEntityDescription
 from homeassistant.components.light import LightEntityDescription
@@ -34,6 +35,7 @@ ENTITY_DESCRIPTION_MAP = {
     Platform.SENSOR: SensorEntityDescription,
     Platform.BINARY_SENSOR: BinarySensorEntityDescription,
     Platform.VALVE: ValveEntityDescription,
+    Platform.BUTTON: ButtonEntityDescription,
 }
 
 
@@ -71,8 +73,9 @@ class KocomBaseEntity(RestoreEntity):
             self._device.key, action, **kwargs
         )
         if confirmed is not True:
-            message = "Kocom command was not confirmed"
-            raise HomeAssistantError(message)
+            # Name the cause the user can act on: a lost link or a silent device.
+            key = "command_not_confirmed" if self.gateway.connected else "not_connected"
+            raise HomeAssistantError(translation_domain=DOMAIN, translation_key=key)
         
     @property
     def format_key(self) -> str:
@@ -83,21 +86,16 @@ class KocomBaseEntity(RestoreEntity):
 
     @property
     def format_translation_placeholders(self) -> str:
-        if self._device.key.sub_type == SubType.NONE:
-            return f"{str(self._device.key.room_index)}-{str(self._device.key.device_index)}"
-        else:
-            return f"{str(self._device.key.room_index)}-{str(self._device.key.device_index)}"
+        return f"{self._device.key.room_index}-{self._device.key.device_index}"
 
     @property
     def format_identifiers(self) -> str:
         if self._device.key.device_type in {
             DeviceType.VENTILATION, DeviceType.GASVALVE, DeviceType.ELEVATOR, DeviceType.MOTION
         }:
-            return f"KOCOM"
-        elif self._device.key.device_type in {
-            DeviceType.LIGHT, DeviceType.LIGHTCUTOFF, DeviceType.DIMMINGLIGHT
-        }:
-            return f"KOCOM LIGHT"
+            return "KOCOM"
+        elif self._device.key.device_type in {DeviceType.LIGHT, DeviceType.LIGHTCUTOFF}:
+            return "KOCOM LIGHT"
         else:
             return f"KOCOM {self._device.key.device_type.name}"
 

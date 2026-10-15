@@ -37,6 +37,7 @@ def _install_homeassistant_shims() -> None:
         SENSOR = "sensor"
         BINARY_SENSOR = "binary_sensor"
         VALVE = "valve"
+        BUTTON = "button"
 
     _set_attributes(const, Platform=Platform)
     _set_attributes(const, UnitOfTemperature=types.SimpleNamespace(CELSIUS="°C"))
@@ -130,6 +131,10 @@ def _install_homeassistant_shims() -> None:
         )
         setattr(components, package, module)
 
+    button = _module("homeassistant.components.button")
+    _set_attributes(button, ButtonEntityDescription=_EntityDescription)
+    _set_attributes(components, button=button)
+
     valve = _module("homeassistant.components.valve")
     _set_attributes(valve, ValveEntityDescription=_EntityDescription)
     _set_attributes(components, valve=valve)
@@ -180,6 +185,7 @@ def _install_homeassistant_shims() -> None:
     )
     _set_attributes(restore_state, RestoreEntity=_RestoreEntity)
     _set_attributes(restore_state, RestoredExtraData=lambda value: value)
+    _set_attributes(restore_state, StoredState=object)
     dispatcher = _module("homeassistant.helpers.dispatcher")
     _set_attributes(dispatcher, async_dispatcher_send=lambda *args, **kwargs: None)
     _set_attributes(

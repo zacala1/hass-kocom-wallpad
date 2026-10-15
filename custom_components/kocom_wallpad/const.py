@@ -18,6 +18,7 @@ PLATFORMS = [
     Platform.SENSOR,
     Platform.BINARY_SENSOR,
     Platform.VALVE,
+    Platform.BUTTON,
 ]
 
 PACKET_PREFIX = bytes([0xAA, 0x55])
@@ -41,7 +42,6 @@ class DeviceType(IntEnum):
     UNKNOWN = 0
     LIGHT = 1
     LIGHTCUTOFF = 2
-    DIMMINGLIGHT = 3
     OUTLET = 4
     THERMOSTAT = 5
     AIRCONDITIONER = 6

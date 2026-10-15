@@ -103,7 +103,7 @@ jobs:
           uv run --no-project --with "homeassistant==$HA_VERSION" --with "pytest-homeassistant-custom-component==$HA_TEST_VERSION" --with "$SERIALX_SPEC" python -c '
           import importlib
           import pathlib
-          for module in ("__init__", "config_flow", "options_flow", "light", "switch", "climate", "fan", "sensor", "binary_sensor"):
+          for module in ("__init__", "config_flow", "light", "switch", "climate", "fan", "sensor", "binary_sensor", "valve", "button", "diagnostics", "hub"):
               loaded = importlib.import_module("custom_components.kocom_wallpad." + module)
               assert pathlib.Path(loaded.__file__).resolve().is_relative_to(pathlib.Path.cwd())
           print("Packaged real-HA imports passed")

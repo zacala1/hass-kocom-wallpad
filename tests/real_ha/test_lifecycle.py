@@ -93,19 +93,3 @@ async def test_setup_retry_when_wallpad_unreachable(hass: HomeAssistant) -> None
     assert entry.state is ConfigEntryState.SETUP_RETRY
     assert entry.entry_id not in hass.data.get(DOMAIN, {})
 
-
-@pytest.mark.asyncio
-async def test_options_when_step_selected(hass: HomeAssistant) -> None:
-    # Given a registered but unloaded entry with default model-derived temperature step.
-    entry = MockConfigEntry(domain=DOMAIN, data={"host": "wallpad", "port": 8899})
-    entry.add_to_hass(hass)
-    flow = await hass.config_entries.options.async_init(entry.entry_id)
-    assert flow["type"] == "form"
-    # When the real HA options manager saves the explicitly selected override.
-    result = await hass.config_entries.options.async_configure(
-        flow["flow_id"],
-        user_input={"thermostat_step": "1"},
-    )
-    # Then the setting is entry-owned without assigning OptionsFlow.config_entry.
-    assert result["type"] == "create_entry"
-    assert entry.options["thermostat_step"] == "1"

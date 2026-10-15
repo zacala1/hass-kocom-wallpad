@@ -1,13 +1,5 @@
 {
     "title": "Kocom Wallpad",
-    "options": {
-        "step": {
-            "init": {
-                "description": "Auto preserves the existing device temperature step. Select 1 to restrict thermostat controls to 1°C steps. Air conditioners are unaffected. This option does not change packet encoding or add half-degree protocol support.",
-                "data": {"thermostat_step": "Thermostat step (auto: existing device value, 1: 1°C)"}
-            }
-        }
-    },
     "config": {
         "step": {
             "user": {
@@ -46,9 +38,6 @@
             "light": {
                 "name": "Light {id}"
             },
-            "dimminglight": {
-                "name": "Dimming Light {id}"
-            },
             "lightcutoff": {
                 "name": "Light Cut-off {id}"
             }
@@ -56,9 +45,11 @@
         "switch": {
             "outlet": {
                 "name": "Outlet {id}"
-            },
+            }
+        },
+        "button": {
             "elevator": {
-                "name": "Elevator {id}"
+                "name": "Elevator Call {id}"
             }
         },
         "valve": {
@@ -130,6 +121,17 @@
             "ventilation-errcode": {
                 "name": "Ventilation Error Code {id}"
             }
+        }
+    },
+    "exceptions": {
+        "command_not_confirmed": {
+            "message": "The wallpad did not confirm the command. Check that it is sending reports for this device and that the adapter is connected."
+        },
+        "not_connected": {
+            "message": "Not connected to the wallpad adapter. Check the host, port and wiring; the connection is retried automatically."
+        },
+        "all_off_state_only": {
+            "message": "The all-off signal is shown for information only and cannot be controlled."
         }
     }
 }
