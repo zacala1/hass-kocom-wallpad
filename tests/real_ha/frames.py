@@ -8,9 +8,15 @@ from custom_components.kocom_wallpad.controller import KocomController
 from custom_components.kocom_wallpad.gateway import EntityRegistry
 
 
-def frame(device_code: int, room: int, command: int, payload: bytes) -> bytes:
+def frame(
+    device_code: int,
+    room: int,
+    command: int,
+    payload: bytes,
+    header: bytes = b"\x30\xbc",
+) -> bytes:
     """Return a wallpad status report for one device, as the bus carries it."""
-    body = b"\x30\xbc\x00\x01\x00" + bytes([device_code, room, command]) + payload
+    body = header + b"\x00\x01\x00" + bytes([device_code, room, command]) + payload
     return b"\xaa\x55" + body + bytes([sum(body) % 256]) + b"\r\r"
 
 
