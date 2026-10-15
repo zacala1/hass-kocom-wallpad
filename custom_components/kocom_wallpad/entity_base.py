@@ -85,21 +85,16 @@ class KocomBaseEntity(RestoreEntity):
 
     @property
     def format_translation_placeholders(self) -> str:
-        if self._device.key.sub_type == SubType.NONE:
-            return f"{str(self._device.key.room_index)}-{str(self._device.key.device_index)}"
-        else:
-            return f"{str(self._device.key.room_index)}-{str(self._device.key.device_index)}"
+        return f"{self._device.key.room_index}-{self._device.key.device_index}"
 
     @property
     def format_identifiers(self) -> str:
         if self._device.key.device_type in {
             DeviceType.VENTILATION, DeviceType.GASVALVE, DeviceType.ELEVATOR, DeviceType.MOTION
         }:
-            return f"KOCOM"
-        elif self._device.key.device_type in {
-            DeviceType.LIGHT, DeviceType.LIGHTCUTOFF, DeviceType.DIMMINGLIGHT
-        }:
-            return f"KOCOM LIGHT"
+            return "KOCOM"
+        elif self._device.key.device_type in {DeviceType.LIGHT, DeviceType.LIGHTCUTOFF}:
+            return "KOCOM LIGHT"
         else:
             return f"KOCOM {self._device.key.device_type.name}"
 

@@ -16,7 +16,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from .gateway import KocomGateway
 from .models import DeviceState
 from .entity_base import KocomBaseEntity
-from .const import DOMAIN, LOGGER, DeviceType
+from .const import DOMAIN, DeviceType
 
 
 async def async_setup_entry(

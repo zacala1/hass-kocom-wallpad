@@ -81,7 +81,6 @@ class EntityRegistry:
     def __init__(self) -> None:
         """Initialize the registry."""
         self._states: Dict[Tuple[int, int, int, int], DeviceState] = {}
-        self._shadow: Dict[Tuple[int, int, int, int], DeviceState] = {}
         self.by_platform: Dict[Platform, Dict[str, DeviceState]] = {}
 
     def upsert(self, dev: DeviceState, allow_insert: bool = True) -> tuple[bool, bool]:
@@ -108,21 +107,8 @@ class EntityRegistry:
             self._states[k] = dev
         return False, changed
 
-    def get(self, key: DeviceKey, include_shadow: bool = False) -> Optional[DeviceState]:
-        dev = self._states.get(key.key)
-        if dev is None and include_shadow:
-            return self._shadow.get(key.key)
-        return dev
-
-    def promote(self, key: DeviceKey) -> bool:
-        """shadow -> real promotion (becomes a target for entity creation)"""
-        k = key.key
-        dev = self._shadow.pop(k, None)
-        if dev is None:
-            return False
-        self._states[k] = dev
-        self.by_platform.setdefault(dev.platform, {})[dev.key.unique_id] = dev
-        return True
+    def get(self, key: DeviceKey) -> Optional[DeviceState]:
+        return self._states.get(key.key)
 
     def all_by_platform(self, platform: Platform) -> List[DeviceState]:
         return list(self.by_platform.get(platform, {}).values())
@@ -157,7 +143,6 @@ class KocomGateway:
         self._pendings: list[_PendingWaiter] = []
         self._last_rx_monotonic: float | None = None
         self.last_receive_time: datetime | None = None
-        self._last_tx_monotonic: float = 0.0
         self._restore_mode: bool = False
         self._force_register_uid: str | None = None
         self._fresh_keys: set[tuple[int, int, int, int]] = set()
@@ -419,25 +404,6 @@ class KocomGateway:
                 except ValueError:
                     pass
 
-    async def _wait_for_confirmation(
-        self,
-        key: DeviceKey,
-        predicate: Callable[[DeviceState], bool],
-        timeout: float,
-    ) -> DeviceState:
-        loop = asyncio.get_running_loop()
-        waiter = _PendingWaiter(key, predicate, loop)
-        self._pendings.append(waiter)
-        try:
-            return await asyncio.wait_for(waiter.future, timeout=timeout)
-        finally:
-            # 타임아웃 등으로 끝났을 때 누수 방지
-            if waiter in self._pendings:
-                try:
-                    self._pendings.remove(waiter)
-                except ValueError:
-                    pass
-
     async def _sender_loop(self) -> None:
         LOGGER.debug("Starting sender loop")
         try:
@@ -514,7 +480,6 @@ class KocomGateway:
                 except Exception as e:  # transport errors, incl. non-OSError serial ones
                     LOGGER.warning("Send failed on attempt %d: %s", attempt, e)
                 else:
-                    self._last_tx_monotonic = loop.time()
                     try:
                         await asyncio.wait_for(waiter.future, timeout=timeout)
                     except TimeoutError:

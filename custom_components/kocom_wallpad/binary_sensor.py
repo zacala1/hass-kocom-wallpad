@@ -18,7 +18,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from .gateway import KocomGateway
 from .models import DeviceState
 from .entity_base import KocomBaseEntity
-from .const import DOMAIN, LOGGER, SubType
+from .const import DOMAIN, SubType
 from .hub import KocomConnectionSensor
 
 
