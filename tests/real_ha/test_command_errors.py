@@ -130,12 +130,15 @@ async def test_platform_action_raises_when_command_unconfirmed(
 ) -> None:
     # Given a real entity whose gateway reports no confirmed result.
     gateway = KocomGateway(hass, MockConfigEntry(domain=DOMAIN), "wallpad", 8899)
+    gateway.conn._set_connected(connected=True)
     send = AsyncMock(return_value=result)
     monkeypatch.setattr(gateway, "async_send_action", send)
     action = action_for(gateway, path)
     # When any command-producing platform branch runs.
-    with pytest.raises(HomeAssistantError, match="not confirmed"):
+    with pytest.raises(HomeAssistantError) as raised:
         await action()
+    # Then a connected but silent wallpad is named as such.
+    assert raised.value.translation_key == "command_not_confirmed"
     # Then the failure is surfaced after precisely one gateway action.
     send.assert_awaited_once()
 
@@ -223,7 +226,7 @@ async def test_real_ha_service_raises_when_peer_never_confirms(
         await hass.async_block_till_done()
         entity_id = hass.states.async_all("climate")[0].entity_id
         # When a blocking HA service sends a command without a wallpad reply.
-        with pytest.raises(HomeAssistantError, match="not confirmed"):
+        with pytest.raises(HomeAssistantError, match="did not confirm"):
             await asyncio.wait_for(
                 hass.services.async_call(
                     "climate",

@@ -73,8 +73,9 @@ class KocomBaseEntity(RestoreEntity):
             self._device.key, action, **kwargs
         )
         if confirmed is not True:
-            message = "Kocom command was not confirmed"
-            raise HomeAssistantError(message)
+            # Name the cause the user can act on: a lost link or a silent device.
+            key = "command_not_confirmed" if self.gateway.connected else "not_connected"
+            raise HomeAssistantError(translation_domain=DOMAIN, translation_key=key)
         
     @property
     def format_key(self) -> str:

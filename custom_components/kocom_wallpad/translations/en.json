@@ -122,5 +122,16 @@
                 "name": "Ventilation Error Code {id}"
             }
         }
+    },
+    "exceptions": {
+        "command_not_confirmed": {
+            "message": "The wallpad did not confirm the command. Check that it is sending reports for this device and that the adapter is connected."
+        },
+        "not_connected": {
+            "message": "Not connected to the wallpad adapter. Check the host, port and wiring; the connection is retried automatically."
+        },
+        "all_off_state_only": {
+            "message": "The all-off signal is shown for information only and cannot be controlled."
+        }
     }
 }
