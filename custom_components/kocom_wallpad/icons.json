@@ -1,0 +1,53 @@
+{
+    "entity": {
+        "light": {
+            "lightcutoff": {
+                "default": "mdi:lightbulb-group-off"
+            }
+        },
+        "climate": {
+            "thermostat": {
+                "default": "mdi:heating-coil"
+            },
+            "airconditioner": {
+                "default": "mdi:air-conditioner"
+            }
+        },
+        "fan": {
+            "ventilation": {
+                "default": "mdi:hvac",
+                "state": {
+                    "off": "mdi:hvac-off"
+                }
+            }
+        },
+        "button": {
+            "elevator": {
+                "default": "mdi:elevator"
+            }
+        },
+        "sensor": {
+            "elevator-direction": {
+                "default": "mdi:elevator",
+                "state": {
+                    "called": "mdi:elevator-passenger-outline",
+                    "upward": "mdi:elevator-up",
+                    "downward": "mdi:elevator-down",
+                    "arrival": "mdi:elevator-passenger"
+                }
+            },
+            "elevator-floor": {
+                "default": "mdi:numeric"
+            },
+            "thermostat-hottemp": {
+                "default": "mdi:water-thermometer"
+            },
+            "thermostat-heattemp": {
+                "default": "mdi:radiator"
+            },
+            "last_received": {
+                "default": "mdi:clock-check-outline"
+            }
+        }
+    }
+}

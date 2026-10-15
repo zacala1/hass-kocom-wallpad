@@ -11,6 +11,7 @@
   "fan.py",
   "gateway.py",
   "hub.py",
+  "icons.json",
   "light.py",
   "manifest.json",
   "models.py",
