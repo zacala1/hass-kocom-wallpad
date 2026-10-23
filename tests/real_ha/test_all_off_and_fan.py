@@ -1,17 +1,14 @@
 """The all-off signal has its own identity, and fan speeds never break state writes."""
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 import pytest
 from homeassistant.const import Platform
-from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.kocom_wallpad.const import DeviceType, SubType
 from custom_components.kocom_wallpad.controller import KocomController
 from custom_components.kocom_wallpad.fan import KocomFan
 from custom_components.kocom_wallpad.gateway import EntityRegistry
-from custom_components.kocom_wallpad.light import KocomLight
 from custom_components.kocom_wallpad.models import DeviceKey, DeviceState
 
 
@@ -48,7 +45,7 @@ def test_all_off_signal_does_not_touch_room_zero_light(
     assert registry.get(ROOM0_LIGHT0).state is True
     cutoff = registry.get(ALL_OFF)
     assert cutoff is not None
-    assert cutoff.platform == Platform.LIGHT
+    assert cutoff.platform == Platform.BINARY_SENSOR
     assert cutoff.state is state
     assert cutoff.key.unique_id != ROOM0_LIGHT0.unique_id
 
@@ -61,22 +58,6 @@ def test_all_off_signal_does_not_invent_a_room_zero_light() -> None:
     # Then no regular light appears.
     assert registry.get(ROOM0_LIGHT0) is None
     assert registry.get(ALL_OFF) is not None
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("action", ["async_turn_on", "async_turn_off"])
-async def test_all_off_light_refuses_control_without_sending(action: str) -> None:
-    # Given the all-off state entity and a regular light.
-    gateway = SimpleNamespace(host="wallpad", async_send_action=AsyncMock(return_value=True))
-    cutoff = KocomLight(gateway, DeviceState(ALL_OFF, Platform.LIGHT, {}, True))
-    regular = KocomLight(gateway, DeviceState(ROOM0_LIGHT0, Platform.LIGHT, {}, True))
-    # When control is requested, the all-off entity fails clearly and sends nothing.
-    with pytest.raises(HomeAssistantError, match="all-off"):
-        await getattr(cutoff, action)()
-    gateway.async_send_action.assert_not_awaited()
-    # The regular light still sends its command.
-    await getattr(regular, action)()
-    gateway.async_send_action.assert_awaited_once()
 
 
 FAN_KEY = DeviceKey(DeviceType.VENTILATION, 0, 0, SubType.NONE)

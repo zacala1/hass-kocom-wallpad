@@ -330,8 +330,9 @@ class KocomGateway:
     def is_device_available(self, key: DeviceKey) -> bool:
         """Require a fresh report for this device on the current connection.
 
-        Event-driven devices (gas valve, elevator, motion) are the exception: once
-        known they stay available while connected, keeping the last known state.
+        Event-driven devices (gas valve, elevator, motion, the all-off signal) are
+        the exception: once known they stay available while connected, keeping the
+        last known state.
         """
         if not self.conn._is_connected():
             return False

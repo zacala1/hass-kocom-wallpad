@@ -46,30 +46,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await gateway.async_stop()
         raise
 
-    _remove_legacy_switches(hass, entry)
+    _remove_legacy_entities(hass, entry)
     return True
 
 
-# Devices that used to be switches: the gas valve is a valve now, the elevator call a
-# button. Their unique ids start with the device type value.
-LEGACY_SWITCH_PREFIXES = (
-    f"{DeviceType.GASVALVE.value}-",
-    f"{DeviceType.ELEVATOR.value}-",
-)
+# Entities that moved to another platform: the gas valve is a valve now, the elevator
+# call a button and the all-off signal a binary sensor. Their unique ids start with
+# the device type value.
+LEGACY_ENTITY_PREFIXES = {
+    "switch": (f"{DeviceType.GASVALVE.value}-", f"{DeviceType.ELEVATOR.value}-"),
+    "light": (f"{DeviceType.LIGHTCUTOFF.value}-",),
+}
 
 
-def _remove_legacy_switches(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Drop the switches the gas valve and the elevator call used to be.
+def _remove_legacy_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Drop the entities that earlier versions created on another platform.
 
     This runs after the platforms are set up, so the old entity has already served
-    as the source of the saved frame that registers the valve. Its object id is the
-    same, so the valve usually keeps the name apart from the domain.
+    as the source of the saved frame that registers its replacement. Its object id
+    is the same, so the replacement usually keeps the name apart from the domain.
     """
     registry = er.async_get(hass)
     for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
-        if entity.domain == "switch" and entity.unique_id.startswith(
-            LEGACY_SWITCH_PREFIXES
-        ):
+        prefixes = LEGACY_ENTITY_PREFIXES.get(entity.domain)
+        if prefixes and entity.unique_id.startswith(prefixes):
             registry.async_remove(entity.entity_id)
 
 

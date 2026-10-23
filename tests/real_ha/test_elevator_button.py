@@ -21,11 +21,20 @@ from custom_components.kocom_wallpad.models import DeviceKey, DeviceState
 
 ELEVATOR = DeviceKey(DeviceType.ELEVATOR, 1, 0, SubType.NONE)
 DIRECTION = DeviceKey(DeviceType.ELEVATOR, 1, 0, SubType.DIRECTION)
+ELEVATOR_UNIQUE_ID = "9-1_0-0:127.0.0.1"
 
 
 def report(direction: int) -> bytes:
     """An elevator report: 0 idle, 1 downward, 2 upward, 3 arrival (floor unknown)."""
     return frame(0x44, 1, 0x00, bytes([direction]) + bytes(7))
+
+
+def elevator_button(hass: HomeAssistant) -> str | None:
+    """The elevator call button; the all-lights-off button is a second one."""
+    entity_id = er.async_get(hass).async_get_entity_id(
+        "button", DOMAIN, ELEVATOR_UNIQUE_ID
+    )
+    return entity_id if entity_id and hass.states.get(entity_id) else None
 
 
 def direction_states(hass: HomeAssistant) -> list[str]:
@@ -89,10 +98,10 @@ async def test_button_press_reaches_the_wire_and_the_report_confirms_it(
         assert await hass.config_entries.async_setup(entry.entry_id)
         try:
             await wallpad.send(report(0x00))
-            await wait_until(lambda: len(hass.states.async_all("button")) == 1)
+            await wait_until(lambda: elevator_button(hass) is not None)
             await wait_until(lambda: direction_states(hass) == ["idle"])
             assert hass.states.async_all("switch") == []
-            entity_id = hass.states.async_all("button")[0].entity_id
+            entity_id = elevator_button(hass)
             assert hass.states.get(entity_id).state == "unknown"  # never pressed
             # When the button is pressed, one call frame goes out and is confirmed.
             await hass.services.async_call(
@@ -120,8 +129,8 @@ async def test_an_unanswered_call_is_an_error(
         assert await hass.config_entries.async_setup(entry.entry_id)
         try:
             await wallpad.send(report(0x00))
-            await wait_until(lambda: len(hass.states.async_all("button")) == 1)
-            entity_id = hass.states.async_all("button")[0].entity_id
+            await wait_until(lambda: elevator_button(hass) is not None)
+            entity_id = elevator_button(hass)
             with pytest.raises(HomeAssistantError):
                 await hass.services.async_call(
                     "button", "press", {"entity_id": entity_id}, blocking=True
@@ -155,7 +164,7 @@ async def test_old_elevator_switch_is_replaced_by_the_button_on_setup(
         try:
             await hass.async_block_till_done()
             # Then the saved report becomes a button and the old switch is gone.
-            assert len(hass.states.async_all("button")) == 1
+            assert elevator_button(hass) is not None
             assert registry.async_get(old.entity_id) is None
             assert registry.async_get(outlet.entity_id) is not None
         finally:

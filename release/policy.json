@@ -1,7 +1,7 @@
 {
   "publication_enabled": true,
-  "version": "2.1.0b3",
-  "runtime_tree": "13d957625be508e92d846d741e2b4a3ffa457264",
+  "version": "2.1.0b4",
+  "runtime_tree": "244d3b49a2aa8e94558694a1d8dfb43bf65bd75b",
   "license_reviewed": true,
   "latest_stable_ha": "2026.9.4",
   "ha_matrix": [

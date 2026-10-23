@@ -39,6 +39,17 @@ ENTITY_DESCRIPTION_MAP = {
 }
 
 
+def wallpad_device_info(gateway: KocomGateway, name: str, unique_id: str) -> DeviceInfo:
+    """Describe the device an entity belongs to, e.g. "KOCOM LIGHT"."""
+    return DeviceInfo(
+        connections={(gateway.host, unique_id)},
+        identifiers={(DOMAIN, name)},
+        manufacturer="KOCOM Co., Ltd",
+        model="Smart Wallpad",
+        name=name,
+    )
+
+
 class KocomBaseEntity(RestoreEntity):
     """Base class for Kocom entities."""
 
@@ -57,12 +68,8 @@ class KocomBaseEntity(RestoreEntity):
             translation_key=self.format_key,
             translation_placeholders={"id": self.format_translation_placeholders}
         )
-        self._attr_device_info = DeviceInfo(
-            connections={(self.gateway.host, self.unique_id)},
-            identifiers={(DOMAIN, f"{self.format_identifiers}")},
-            manufacturer="KOCOM Co., Ltd",
-            model="Smart Wallpad",
-            name=f"{self.format_identifiers}",
+        self._attr_device_info = wallpad_device_info(
+            self.gateway, self.format_identifiers, self.unique_id
         )
 
     async def async_send_command(

@@ -1,8 +1,8 @@
 {
     "entity": {
-        "light": {
+        "binary_sensor": {
             "lightcutoff": {
-                "default": "mdi:lightbulb-group-off"
+                "default": "mdi:lightbulb-group-off-outline"
             }
         },
         "climate": {
@@ -24,6 +24,9 @@
         "button": {
             "elevator": {
                 "default": "mdi:elevator"
+            },
+            "all-lights-off": {
+                "default": "mdi:lightbulb-group-off"
             }
         },
         "sensor": {

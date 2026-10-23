@@ -319,7 +319,8 @@ class KocomController:
 
     def _handle_cutoff_switch(self, frame: PacketFrame) -> DeviceState:
         if frame.command in (0x65, 0x66):
-            # Own device type: with LIGHT this key equals room 0 light 0.
+            # Own device type: with LIGHT this key equals room 0 light 0. The signal
+            # is only ever received, so it is a sensor and not a light to switch.
             key = DeviceKey(
                 device_type=DeviceType.LIGHTCUTOFF,
                 room_index=0,
@@ -328,7 +329,7 @@ class KocomController:
             )
             state = frame.command == 0x65
             dev = DeviceState(
-                key=key, platform=Platform.LIGHT, attribute={}, state=state
+                key=key, platform=Platform.BINARY_SENSOR, attribute={}, state=state
             )
             return dev
 
@@ -871,12 +872,7 @@ class KocomController:
         self, key: DeviceKey, action: str, **kwargs: Any
     ) -> Tuple[Predicate, float]:
         dt = key.device_type
-        if dt in (
-            DeviceType.LIGHT,
-            DeviceType.LIGHTCUTOFF,
-            DeviceType.OUTLET,
-            DeviceType.ELEVATOR,
-        ):
+        if dt in (DeviceType.LIGHT, DeviceType.OUTLET, DeviceType.ELEVATOR):
             return self._expect_for_switch_like(key, action, **kwargs)
         if dt == DeviceType.VENTILATION:
             return self._expect_for_ventilation(key, action, **kwargs)

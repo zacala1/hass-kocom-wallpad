@@ -29,14 +29,17 @@ async def test_only_known_event_driven_devices_skip_the_fresh_report_rule(
     gas = DeviceKey(DeviceType.GASVALVE, 0, 0, SubType.NONE)
     thermostat = DeviceKey(DeviceType.THERMOSTAT, 1, 0, SubType.NONE)
     motion = DeviceKey(DeviceType.MOTION, 0, 0, SubType.NONE)
+    all_off = DeviceKey(DeviceType.LIGHTCUTOFF, 0, 0, SubType.NONE)
     gateway.registry.upsert(DeviceState(gas, Platform.VALVE, {}, True))
     gateway.registry.upsert(DeviceState(thermostat, Platform.CLIMATE, {}, {}))
+    gateway.registry.upsert(DeviceState(all_off, Platform.BINARY_SENSOR, {}, True))
     # When the link is down, nothing is available.
     assert not gateway.is_device_available(gas)
     # When it is up without any report on this connection,
     gateway.conn._set_connected(connected=True)
-    # then the known event-driven device is available, the polled one is not,
+    # then the known event-driven devices are available, the polled one is not,
     assert gateway.is_device_available(gas)
+    assert gateway.is_device_available(all_off)
     assert not gateway.is_device_available(thermostat)
     # and an event-driven device that was never seen stays unavailable.
     assert not gateway.is_device_available(motion)
