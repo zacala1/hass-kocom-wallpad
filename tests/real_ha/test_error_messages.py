@@ -15,7 +15,6 @@ from custom_components.kocom_wallpad.light import KocomLight
 from custom_components.kocom_wallpad.models import DeviceKey, DeviceState
 
 LIGHT = DeviceKey(DeviceType.LIGHT, 1, 0, SubType.NONE)
-ALL_OFF = DeviceKey(DeviceType.LIGHTCUTOFF, 0, 0, SubType.NONE)
 
 
 @pytest.mark.asyncio
@@ -44,16 +43,6 @@ async def test_failed_command_names_the_lost_link_or_the_silent_device(
 
 
 @pytest.mark.asyncio
-async def test_all_off_signal_error_is_translatable(hass: HomeAssistant) -> None:
-    gateway = KocomGateway(hass, MockConfigEntry(domain=DOMAIN), "wallpad", 8899)
-    light = KocomLight(gateway, DeviceState(ALL_OFF, Platform.LIGHT, {}, True))
-    with pytest.raises(HomeAssistantError) as raised:
-        await light.async_turn_off()
-    assert raised.value.translation_domain == DOMAIN
-    assert raised.value.translation_key == "all_off_state_only"
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("language", "needle"),
     [("en", "did not confirm"), ("ko", "확인하지 않았습니다")],
@@ -75,7 +64,10 @@ async def test_home_assistant_resolves_every_message_in_both_languages(
     assert set(resolved) == {
         "command_not_confirmed",
         "not_connected",
-        "all_off_state_only",
+        "lights_off_incomplete",
     }
     assert needle in resolved["command_not_confirmed"]
+    # The partial-failure text names both counts the button passes in.
+    assert "{failed}" in resolved["lights_off_incomplete"]
+    assert "{total}" in resolved["lights_off_incomplete"]
     assert all(text.strip() for text in resolved.values())

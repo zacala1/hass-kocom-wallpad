@@ -56,7 +56,12 @@ class DeviceType(IntEnum):
 # After a restart or reconnect they cannot prove freshness, so a known device stays
 # available instead of waiting for an event that may not come for days.
 EVENT_DRIVEN_DEVICE_TYPES: Final = frozenset(
-    {DeviceType.GASVALVE, DeviceType.ELEVATOR, DeviceType.MOTION}
+    {
+        DeviceType.GASVALVE,
+        DeviceType.ELEVATOR,
+        DeviceType.MOTION,
+        DeviceType.LIGHTCUTOFF,
+    }
 )
 
 

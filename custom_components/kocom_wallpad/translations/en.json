@@ -37,9 +37,6 @@
         "light": {
             "light": {
                 "name": "Light {id}"
-            },
-            "lightcutoff": {
-                "name": "Light Cut-off {id}"
             }
         },
         "switch": {
@@ -50,6 +47,9 @@
         "button": {
             "elevator": {
                 "name": "Elevator Call {id}"
+            },
+            "all-lights-off": {
+                "name": "Turn off all lights"
             }
         },
         "valve": {
@@ -112,6 +112,9 @@
             "connection": {
                 "name": "Connection"
             },
+            "lightcutoff": {
+                "name": "All-off Signal {id}"
+            },
             "motion": {
                 "name": "Motion Sensor(door) {id}"
             },
@@ -130,8 +133,8 @@
         "not_connected": {
             "message": "Not connected to the wallpad adapter. Check the host, port and wiring; the connection is retried automatically."
         },
-        "all_off_state_only": {
-            "message": "The all-off signal is shown for information only and cannot be controlled."
+        "lights_off_incomplete": {
+            "message": "{failed} of {total} lights did not turn off. Check that the wallpad answers light commands; the lights that did respond are already off."
         }
     }
 }
